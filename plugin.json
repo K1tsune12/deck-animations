@@ -1,0 +1,11 @@
+{
+  "name": "Deck Animations",
+  "author": "K1tsune12",
+  "flags": ["root"],
+  "api_version": 1,
+  "publish": {
+    "tags": ["boot-animation", "screensaver", "customization"],
+    "description": "Boot, suspend and screensaver videos in one place: steamdeckrepo.com, GIPHY, generated classics and your own files, with rotation, shuffle and boomerang.",
+    "image": ""
+  }
+}

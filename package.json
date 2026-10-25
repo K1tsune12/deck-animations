@@ -1,0 +1,37 @@
+{
+  "name": "deck-animations",
+  "version": "0.12.1",
+  "description": "Download steamdeckrepo videos and use them as native Steam screensavers on the Steam Deck",
+  "type": "module",
+  "scripts": {
+    "build": "shx rm -rf dist && rollup -c",
+    "watch": "rollup -c -w"
+  },
+  "keywords": [
+    "decky",
+    "decky-loader",
+    "steam-deck",
+    "screensaver"
+  ],
+  "license": "BSD-3-Clause",
+  "devDependencies": {
+    "@decky/rollup": "^1.0.1",
+    "@decky/ui": "^4.9.0",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "shx": "^0.3.4",
+    "typescript": "^5.5.4"
+  },
+  "dependencies": {
+    "@decky/api": "^1.1.2",
+    "react-icons": "^5.2.1"
+  },
+  "pnpm": {
+    "peerDependencyRules": {
+      "ignoreMissing": [
+        "react",
+        "react-dom"
+      ]
+    }
+  }
+}
