@@ -9,9 +9,18 @@
 //   up on the screensaver ~0.5 s later and brings the menu back. Steam's own
 //   NotifyActiveStateChanged lets us react within that window: close the menus
 //   and re-start it as a forced screensaver, which only real input ends.
+// - Stays out of the way around suspend: no re-forcing while the Deck goes to
+//   sleep (a forced screensaver would survive it), and no screensaver right
+//   after waking up.
 
 import { getState, setDisplayPower } from './backend';
-import { folderFromId, isScreensaverActive, onScreensaverActiveChanged, previewScreensaver } from './steam';
+import {
+  folderFromId,
+  isScreensaverActive,
+  onScreensaverActiveChanged,
+  previewScreensaver,
+  stopScreensaver,
+} from './steam';
 
 const POLL_MS = 1000;
 const MENU_POLL_MS = 250;
@@ -21,6 +30,8 @@ const BOUNCE_MS = 1000; // deactivated this soon after activating = Steam gave u
 const REFORCE_WINDOW_MS = 10000;
 const REFORCE_MAX = 2;
 const MARGIN_MS = 1500; // fade-out + seek slack
+const RESUME_GRACE_MS = 8000; // no screensaver this soon after waking up
+const SLEEP_GAP_MS = 10000; // a timer this late means the Deck was asleep
 
 let pollTimer: number | undefined;
 let menuTimer: number | undefined;
@@ -32,6 +43,10 @@ let currentId = '';
 let menuSeenAt = 0;
 let activatedAt = 0;
 let reforces: number[] = [];
+let suspending = false;
+let resumedAt = 0;
+let lastTick = Date.now();
+let stopSuspendHooks: (() => void) | undefined;
 
 /** Keep the watcher aware of the active screensaver (fed from client settings). */
 export function setCurrentScreensaverId(id: string): void {
@@ -93,7 +108,34 @@ function reforce(): void {
   window.setTimeout(() => void previewScreensaver().catch(() => {}), REFORCE_DELAY_MS);
 }
 
+const justWoke = () => Date.now() - resumedAt < RESUME_GRACE_MS;
+
+function onSuspend(): void {
+  if (suspending) return;
+  suspending = true;
+  window.clearTimeout(offTimer);
+  offTimer = undefined;
+  if (wasActive) void stopScreensaver().catch(() => {});
+}
+
+function onResume(): void {
+  suspending = false;
+  resumedAt = Date.now();
+  reforces = [];
+  if (displayOff) void setDisplay(true);
+  // a screensaver left over from before the suspend (or started by the idle
+  // timer counting the time asleep) shouldn't be the first thing you see
+  void isScreensaverActive()
+    .then((active) => (active ? stopScreensaver() : undefined))
+    .catch(() => {});
+}
+
 function onActiveChange(active: boolean): void {
+  if (suspending || (active && justWoke())) {
+    if (active && !suspending) void stopScreensaver().catch(() => {});
+    wasActive = active;
+    return;
+  }
   if (active && !wasActive) {
     activatedAt = Date.now();
     if (Date.now() - menuSeenAt < MENU_RECENT_MS) {
@@ -115,6 +157,9 @@ function onActiveChange(active: boolean): void {
 }
 
 async function poll(): Promise<void> {
+  const now = Date.now();
+  if (now - lastTick > SLEEP_GAP_MS) onResume(); // fallback if the resume event was missed
+  lastTick = now;
   try {
     onActiveChange(await isScreensaverActive());
   } catch {
@@ -122,8 +167,22 @@ async function poll(): Promise<void> {
   }
 }
 
+function registerSuspendHooks(): () => void {
+  const user = (window as any).SteamClient?.User;
+  const handles = [
+    user?.RegisterForPrepareForSystemSuspendProgress?.(() => onSuspend()),
+    user?.RegisterForResumeSuspendedGamesProgress?.(() => onResume()),
+  ];
+  return () => handles.forEach((h) => h?.unregister?.());
+}
+
 export function startScreenOffWatcher(): void {
   stopNotify = onScreensaverActiveChanged(onActiveChange);
+  try {
+    stopSuspendHooks = registerSuspendHooks();
+  } catch (err) {
+    console.warn('[deck-animations] suspend hooks unavailable', err);
+  }
   menuTimer = window.setInterval(() => {
     if (menuStore()?.IsAnySideMenuVisible?.()) menuSeenAt = Date.now();
   }, MENU_POLL_MS);
@@ -133,6 +192,7 @@ export function startScreenOffWatcher(): void {
 
 export function stopScreenOffWatcher(): void {
   stopNotify?.();
+  stopSuspendHooks?.();
   window.clearInterval(menuTimer);
   window.clearInterval(pollTimer);
   window.clearTimeout(offTimer);

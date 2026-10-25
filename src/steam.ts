@@ -224,6 +224,11 @@ export async function activateFolder(folder: string): Promise<boolean> {
   return true;
 }
 
+/** End whatever screensaver is showing (forced or idle-started). */
+export async function stopScreensaver(): Promise<void> {
+  await getService()?.ForceScreensaver({ enabled: false });
+}
+
 export async function previewScreensaver(): Promise<void> {
   await getService()?.ForceScreensaver({ enabled: true });
 }
