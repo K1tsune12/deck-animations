@@ -35,7 +35,11 @@ A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin. Brow
 - 🌐 **English** and **Português (Brasil)**, following Steam's language by default.
 
 ### 🧳 Coming from Animation Changer?
-Deck Animations warns you while it's still installed. Open **Settings → Migrate from Animation Changer** and press **Back up & import**. Your downloaded videos and choices (current videos, randomize on boot, exclusions) move into the library through hardlinks, with nothing downloaded again and no extra space used. A backup of everything goes to `~/Backups` first.
+Deck Animations warns you while it's still installed, and **Settings → Migrate from Animation Changer** explains every option:
+- 📥 **Import**: brings its downloaded videos and your choices (current videos, randomize on boot, exclusions) into the library through hardlinks, with nothing downloaded again and no extra space used. Its own files stay, so it keeps working until you remove it.
+- 💾 **Back up**: saves its videos and settings to `~/Backups`, without importing anything.
+- ♻️ **Restore**: puts a backup back into Animation Changer (its current settings are kept aside first).
+- 🗑️ **Delete**: removes a backup; videos still used elsewhere stay.
 
 ---
 
