@@ -232,3 +232,31 @@ export async function stopScreensaver(): Promise<void> {
 export async function previewScreensaver(): Promise<void> {
   await getService()?.ForceScreensaver({ enabled: true });
 }
+
+// Gamescope service (SetDisplayPowerState): switches the panel itself off, so
+// nothing (notifications included) is shown until it's switched back on.
+// EDisplayPowerState: 0 invalid, 1 off, 2 on.
+interface GamescopeService {
+  SetDisplayPowerState(req: { estate: number }): Promise<any>;
+}
+
+let gamescope: GamescopeService | null | undefined;
+
+function getGamescope(): GamescopeService | null {
+  if (gamescope === undefined) {
+    gamescope =
+      findModuleExport(
+        (e: any) => typeof e?.SetDisplayPowerState === 'function' && typeof e?.GetState === 'function',
+      ) ?? null;
+    if (!gamescope) console.warn('[deck-animations] Gamescope service not found');
+  }
+  return gamescope ?? null;
+}
+
+/** Switch the panel off/on through gamescope. False if that isn't available. */
+export async function setPanelPower(on: boolean): Promise<boolean> {
+  const gs = getGamescope();
+  if (!gs) return false;
+  const res = await gs.SetDisplayPowerState({ estate: on ? 2 : 1 });
+  return res?.GetEResult?.() === 1;
+}

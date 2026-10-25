@@ -330,21 +330,49 @@ def _write_single(video_id):
 
 
 def _set_backlight(on):
-    """Blank or unblank every panel backlight. Needs root (plugin flag)."""
+    """Turn the panel dark or bring it back. Needs root (plugin flag).
+
+    bl_power alone does nothing on the OLED Deck (its brightness is driven
+    over the panel's own interface), so the brightness itself goes to 0 and
+    is restored afterwards; the saved value lives in the flag file so it
+    survives a plugin restart."""
     names = os.listdir(BACKLIGHT_DIR)
     if not names:
         raise RuntimeError("no backlight device found")
-    for name in names:
-        with open(os.path.join(BACKLIGHT_DIR, name, "bl_power"), "w", encoding="ascii") as f:
-            f.write(_BL_UNBLANK if on else _BL_POWERDOWN)
-    decky.logger.info(f"display {'on' if on else 'off'} ({', '.join(names)})")
+
+    def path(name, key):
+        return os.path.join(BACKLIGHT_DIR, name, key)
+
+    def write(name, key, value):
+        with open(path(name, key), "w", encoding="ascii") as f:
+            f.write(str(value))
+
+    def read(name, key):
+        with open(path(name, key), encoding="ascii") as f:
+            return f.read().strip()
+
     if on:
+        saved = _load_json(_DISPLAY_OFF_FLAG, {})
+        saved = saved if isinstance(saved, dict) else {}
+        for name in names:
+            write(name, "bl_power", _BL_UNBLANK)
+            # only restore if nobody (Steam, the user) changed it meanwhile
+            if name in saved and read(name, "brightness") == "0":
+                write(name, "brightness", saved[name])
         if os.path.exists(_DISPLAY_OFF_FLAG):
             os.remove(_DISPLAY_OFF_FLAG)
     else:
-        with open(_DISPLAY_OFF_FLAG, "w", encoding="ascii") as f:
-            f.write("1")
-
+        saved = {}
+        for name in names:
+            current = read(name, "brightness")
+            if current != "0":
+                saved[name] = current
+            write(name, "bl_power", _BL_POWERDOWN)
+            write(name, "brightness", 0)
+        if not os.path.exists(_DISPLAY_OFF_FLAG):
+            with open(_DISPLAY_OFF_FLAG, "w", encoding="ascii") as f:
+                json.dump(saved, f)
+    decky.logger.info(f"display {'on' if on else 'off'} ({', '.join(names)})")
 
 def _remove_folder(folder):
     path = os.path.join(SCREENSAVERS_DIR, folder)
@@ -1372,8 +1400,31 @@ class Plugin:
             decky.logger.exception("set_playback failed")
             return {"ok": False, "error": str(err)}
 
+    async def display_info(self):
+        """Backlight and panel state, for diagnosing "display off" on a given Deck."""
+        def read(path):
+            try:
+                with open(path, encoding="ascii") as f:
+                    return f.read().strip()
+            except OSError as err:
+                return f"<{err.strerror}>"
+
+        info = {"backlight": {}, "drm": {}}
+        for name in sorted(os.listdir(BACKLIGHT_DIR)) if os.path.isdir(BACKLIGHT_DIR) else []:
+            base = os.path.join(BACKLIGHT_DIR, name)
+            info["backlight"][name] = {
+                k: read(os.path.join(base, k))
+                for k in ("type", "brightness", "actual_brightness", "max_brightness", "bl_power")
+            }
+        drm = "/sys/class/drm"
+        for name in sorted(os.listdir(drm)) if os.path.isdir(drm) else []:
+            if "eDP" in name or "DSI" in name:
+                info["drm"][name] = {k: read(os.path.join(drm, name, k)) for k in ("status", "enabled", "dpms")}
+        return info
+
     async def set_display_power(self, on: bool):
-        """Turn the panel backlight off/on (used after the last play)."""
+        """Backlight fallback for turning the display off/on (the frontend
+        prefers gamescope, which switches the panel itself off)."""
         try:
             _set_backlight(bool(on))
             return {"ok": True}

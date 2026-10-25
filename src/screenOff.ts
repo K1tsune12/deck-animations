@@ -19,6 +19,7 @@ import {
   isScreensaverActive,
   onScreensaverActiveChanged,
   previewScreensaver,
+  setPanelPower,
   stopScreensaver,
 } from './steam';
 
@@ -89,9 +90,13 @@ function plannedOffMs(): number | null {
   return playback.plays * playMs(seconds, entry.boomerang) + MARGIN_MS;
 }
 
+/** Panel off/on: gamescope switches the display itself off; the backend's
+ *  backlight route is only a fallback (it can only darken the panel). */
 async function setDisplay(on: boolean): Promise<void> {
   try {
-    await setDisplayPower(on);
+    const viaGamescope = await setPanelPower(on).catch(() => false);
+    // on "on" also undo a backlight change (fallback, or an older version)
+    if (!viaGamescope || on) await setDisplayPower(on);
     displayOff = !on;
   } catch (err) {
     console.warn('[decky-screensavers] display power change failed', err);

@@ -27,7 +27,7 @@ A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin. Brow
 - 🌅 **Boot**, 🌙 **Suspend** and 🖼️ **Screensaver**, each with what's in use, its randomization, and the list of what's in the rotation, with batch select.
 - 🎲 Randomize boot/suspend **on every boot** (once per real boot) and/or **every X minutes**: never while a game is running, and it never wakes the Deck.
 - 🖼️ **Screensaver rotation**: random order or **your own order** (▲ ▼), videos and GIFs by **number of plays**, classics by **seconds**, with crossfades.
-- 🌑 **When it finishes**: stop after N plays (one video) or after one full pass (rotation), then go black or **turn the display off**. Any button brings it back.
+- 🌑 **When it finishes**: stop after N plays (one video) or after one full pass (rotation), then either go black (pixels off, Steam notifications still show) or **turn the display off** for real (the panel is switched off, nothing shows). Any button brings it back.
 
 ### ⚙️ Settings
 - ⏱️ Steam's own **screensaver and sleep timeouts** (battery and plugged in) and "show while playing a game", without leaving the plugin.
@@ -52,7 +52,7 @@ Deck Animations warns you while it's still installed, and **Settings → Migrate
 | 🔁 Boomerang | Chromium can't play video backwards, so the first forward pass snapshots each frame (`requestVideoFrameCallback`) and plays them back on a canvas. |
 | 🌅 Boot & suspend | Symlinks in `~/.steam/root/config/uioverrides/movies/`. Only symlinks are ever replaced; a real file you put there is kept as `*.orig`. Any WebM or MP4 works, since Steam's player detects the format from the content. |
 | ⚙️ Active screensaver & timeouts | Steam client settings, written with `SteamClient.Settings.SetSetting` and read live from `RegisterForSettingsArrayChanges`. |
-| 🌑 Display off | `/sys/class/backlight/*/bl_power`, which is why the backend runs as root. Files it creates in your home are handed back to your user, and the display always comes back on when the screensaver closes or the plugin reloads. |
+| 🌑 Display off | Steam's own Gamescope service switches the panel off (the backlight in `/sys/class/backlight` is only a fallback, which is one reason the backend runs as root). Files it creates in your home are handed back to your user, and the display always comes back on when the screensaver closes or the plugin reloads. |
 | 🧩 Steam quirks handled | The idle screensaver no longer flickers away when a menu is open (it's restarted as a forced one), and touch scrolling no longer snaps back to the focused item. |
 
 🗂️ Uninstalling only removes the screensaver folders the plugin generated. Your library, settings and backups stay on the Deck.
