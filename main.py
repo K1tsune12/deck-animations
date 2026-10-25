@@ -579,6 +579,49 @@ def _find_animation_changer():
     return None
 
 
+_AC_BACKUP_PREFIX = "Animation Changer "
+
+
+def _ac_backup(ac_data, ac_config):
+    """Back up Animation Changer: hardlinks for the videos (no extra space), a
+    copy of its config, and where both came from (for restoring)."""
+    backup = os.path.join(BACKUP_DIR, f"{_AC_BACKUP_PREFIX}{time.strftime('%Y-%m-%d %H%M%S')}")
+    if os.path.isdir(ac_data):
+        _link_tree(ac_data, os.path.join(backup, "data"))
+    os.makedirs(os.path.join(backup, "settings"), exist_ok=True)
+    shutil.copyfile(ac_config, os.path.join(backup, "settings", "config.json"))
+    with open(os.path.join(backup, "backup.json"), "w", encoding="utf-8") as f:
+        json.dump({"data": ac_data, "config": ac_config, "created": time.time()}, f, indent=2)
+    _own_tree(BACKUP_DIR)
+    return backup
+
+
+def _ac_backup_path(name):
+    """Path of a backup by folder name; refuses anything outside BACKUP_DIR."""
+    name = str(name or "")
+    if not name.startswith(_AC_BACKUP_PREFIX) or "/" in name or "\\" in name or ".." in name:
+        raise RuntimeError("invalid backup")
+    path = os.path.join(BACKUP_DIR, name)
+    if not os.path.isdir(path):
+        raise RuntimeError("backup not found")
+    return path
+
+
+def _list_ac_backups():
+    backups = []
+    if not os.path.isdir(BACKUP_DIR):
+        return backups
+    for name in os.listdir(BACKUP_DIR):
+        path = os.path.join(BACKUP_DIR, name)
+        if not name.startswith(_AC_BACKUP_PREFIX) or not os.path.isdir(path):
+            continue
+        meta = _load_json(os.path.join(path, "backup.json"), {})
+        videos = os.path.join(path, "data", "downloads")
+        count = len([n for n in os.listdir(videos) if n.endswith(".webm")]) if os.path.isdir(videos) else 0
+        backups.append({"name": name, "created": meta.get("created") or os.path.getmtime(path), "videos": count})
+    return sorted(backups, key=lambda b: b["created"], reverse=True)
+
+
 def _link_tree(src, dst):
     """Mirror src into dst with hardlinks (copies across filesystems)."""
     for root, _, files in os.walk(src):
@@ -1048,23 +1091,70 @@ class Plugin:
         _save_state()
         return {"ok": True, "state": _public_state()}
 
+    async def get_ac_backups(self):
+        try:
+            return {"ok": True, "backups": _list_ac_backups()}
+        except Exception as err:  # pylint: disable=broad-except
+            decky.logger.exception("get_ac_backups failed")
+            return {"ok": False, "error": str(err)}
+
+    async def backup_animation_changer(self):
+        """Only back up Animation Changer (nothing is imported)."""
+        try:
+            found = _find_animation_changer()
+            if not found:
+                return {"ok": False, "error": "Animation Changer settings not found"}
+            backup = _ac_backup(*found)
+            return {"ok": True, "backup": backup, "backups": _list_ac_backups()}
+        except Exception as err:  # pylint: disable=broad-except
+            decky.logger.exception("backup_animation_changer failed")
+            return {"ok": False, "error": str(err)}
+
+    async def restore_ac_backup(self, name: str):
+        """Put a backup's videos and config back into Animation Changer. Its
+        current config is kept as config.json.before-restore."""
+        try:
+            path = _ac_backup_path(name)
+            meta = _load_json(os.path.join(path, "backup.json"), {})
+            found = _find_animation_changer()
+            ac_data = meta.get("data") or (found and found[0])
+            ac_config = meta.get("config") or (found and found[1])
+            if not ac_data or not ac_config:
+                return {"ok": False, "error": "don't know where Animation Changer keeps its files"}
+            if os.path.isdir(os.path.join(path, "data")):
+                _link_tree(os.path.join(path, "data"), ac_data)
+            saved = os.path.join(path, "settings", "config.json")
+            if os.path.isfile(saved):
+                os.makedirs(os.path.dirname(ac_config), exist_ok=True)
+                if os.path.isfile(ac_config):
+                    shutil.copyfile(ac_config, ac_config + ".before-restore")
+                shutil.copyfile(saved, ac_config)
+            _own_tree(ac_data)
+            _own_tree(os.path.dirname(ac_config))
+            return {"ok": True, "state": _public_state()}
+        except Exception as err:  # pylint: disable=broad-except
+            decky.logger.exception("restore_ac_backup failed")
+            return {"ok": False, "error": str(err)}
+
+    async def delete_ac_backup(self, name: str):
+        """Delete one backup (hardlinked videos still in use elsewhere stay there)."""
+        try:
+            shutil.rmtree(_ac_backup_path(name))
+            return {"ok": True, "backups": _list_ac_backups()}
+        except Exception as err:  # pylint: disable=broad-except
+            decky.logger.exception("delete_ac_backup failed")
+            return {"ok": False, "error": str(err)}
+
     async def import_animation_changer(self):
-        """Back up Animation Changer's data, then bring its downloaded videos and
-        choices into the library. Nothing of Animation Changer is modified."""
+        """Bring Animation Changer's downloaded videos and choices into the
+        library (hardlinks: its own copy stays untouched). No backup here;
+        that's a separate action."""
         try:
             found = _find_animation_changer()
             if not found:
                 return {"ok": False, "error": "Animation Changer settings not found"}
             ac_data, ac_config = found
             config = _load_json(ac_config, {})
-
-            # 1. backup: hardlinks for the videos (no extra space), copy of the config
-            backup = os.path.join(BACKUP_DIR, f"Animation Changer {time.strftime('%Y-%m-%d %H%M')}")
-            if os.path.isdir(ac_data):
-                _link_tree(ac_data, os.path.join(backup, "data"))
-            os.makedirs(os.path.join(backup, "settings"), exist_ok=True)
-            shutil.copyfile(ac_config, os.path.join(backup, "settings", "config.json"))
-            _own_tree(BACKUP_DIR)
 
             # 2. downloaded videos -> library (same ids as our steamdeckrepo installs)
             imported, already, missing = 0, 0, []
@@ -1114,7 +1204,6 @@ class Plugin:
                 "already": already,
                 "missing": missing,
                 "skippedOther": skipped_other,
-                "backup": backup,
             }
         except Exception as err:  # pylint: disable=broad-except
             decky.logger.exception("import_animation_changer failed")

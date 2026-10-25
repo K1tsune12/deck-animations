@@ -36,6 +36,9 @@ export const CSS = `
 }
 .dss-classic .dss-thumb { aspect-ratio: 16 / 7; }
 .dss-panel { background: #0008; border-radius: 4px; padding: 12px; margin: 15px 0; }
+.dss-backup { display: flex; align-items: center; gap: 8px; width: 100%; }
+.dss-backup .DialogButton { width: auto !important; min-width: 0 !important; padding: 6px 12px !important; font-size: 13px !important; }
+.dss-explain { font-size: 12px; line-height: 18px; color: #cfd6df; background: #0006; border-radius: 4px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .dss-warning { background: #4a3a10cc; box-shadow: inset 0 0 0 1px #c98a00; }
 .dss-gif-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .dss-gif { position: relative; aspect-ratio: 1; background: #000; border-radius: 4px; overflow: hidden; transition: transform 0.1s, box-shadow 0.1s; }

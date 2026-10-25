@@ -2,10 +2,18 @@
 // it's installed, and the import in Settings.
 
 import { ButtonItem, ConfirmModal, DialogButton, Focusable, PanelSection, PanelSectionRow, showModal } from '@decky/ui';
-import { FC } from 'react';
+import { FC, useEffect, useState } from 'react';
 
 import { toast, useBusy } from './actions';
-import { importAnimationChanger, useBackendState } from './backend';
+import {
+  AcBackup,
+  backupAnimationChanger,
+  deleteAcBackup,
+  getAcBackups,
+  importAnimationChanger,
+  restoreAcBackup,
+  useBackendState,
+} from './backend';
 import { t, useLanguage } from './i18n';
 
 const AC_NAME = 'Animation Changer';
@@ -15,7 +23,7 @@ const isInstalled = () => !!(window as any).DeckyPluginLoader?.plugins?.some((p:
 async function runImport(): Promise<void> {
   const r = await importAnimationChanger();
   toast(
-    t('ac.done', { n: r.imported, already: r.already, backup: r.backup }) +
+    t('ac.done', { n: r.imported, already: r.already }) +
       (r.missing.length ? ' ' + t('ac.missing', { n: r.missing.length }) : ''),
   );
 }
@@ -50,7 +58,7 @@ export const AnimationChangerBanner: FC = () => {
       <Focusable style={{ display: 'flex', gap: '10px' }}>
         {!state.importedAnimationChanger && (
           <DialogButton style={{ width: 'auto', minWidth: 0, padding: '0 16px' }} disabled={busy} onClick={() => void run(runImport)}>
-            {t('ac.button')}
+            {t('ac.import')}
           </DialogButton>
         )}
         <DialogButton
@@ -66,14 +74,64 @@ export const AnimationChangerBanner: FC = () => {
   );
 };
 
-/** Settings: import (or re-import) Animation Changer's videos and choices. */
+/** Settings: import, back up, restore and delete backups of Animation Changer. */
 export const AnimationChangerSection: FC = () => {
   useLanguage();
   const state = useBackendState();
   const [busy, run] = useBusy();
+  const [backups, setBackups] = useState<AcBackup[]>([]);
+
+  useEffect(() => {
+    getAcBackups().then(setBackups).catch(() => {});
+  }, []);
+
+  const backup = () =>
+    run(async () => {
+      setBackups(await backupAnimationChanger());
+      toast(t('ac.backedUp'));
+    });
+
+  const restore = (b: AcBackup) =>
+    showModal(
+      <ConfirmModal
+        strTitle={t('ac.restore')}
+        strDescription={t('ac.restoreConfirm', { name: b.name })}
+        strOKButtonText={t('ac.restore')}
+        onOK={() =>
+          void run(async () => {
+            await restoreAcBackup(b.name);
+            toast(t('ac.restored'));
+          })
+        }
+      />,
+    );
+
+  const remove = (b: AcBackup) =>
+    showModal(
+      <ConfirmModal
+        strTitle={t('ac.deleteBackup')}
+        strDescription={t('ac.deleteConfirm', { name: b.name })}
+        strOKButtonText={t('ac.deleteBackup')}
+        onOK={() =>
+          void run(async () => {
+            setBackups(await deleteAcBackup(b.name));
+            toast(t('ac.deleted'));
+          })
+        }
+      />,
+    );
 
   return (
     <PanelSection title={t('ac.title')}>
+      <PanelSectionRow>
+        <div className="dss-explain">
+          <div>⚠️ {t('ac.explainConflict')}</div>
+          <div>📥 {t('ac.explainImport')}</div>
+          <div>💾 {t('ac.explainBackup')}</div>
+          <div>♻️ {t('ac.explainRestore')}</div>
+          <div>🗑️ {t('ac.explainDelete')}</div>
+        </div>
+      </PanelSectionRow>
       <PanelSectionRow>
         <div style={{ fontSize: '12px', color: '#9aa', lineHeight: '18px' }}>
           {!state.animationChangerFound
@@ -84,12 +142,45 @@ export const AnimationChangerSection: FC = () => {
         </div>
       </PanelSectionRow>
       {state.animationChangerFound && (
+        <>
+          <PanelSectionRow>
+            <ButtonItem
+              layout="below"
+              disabled={busy}
+              description={t('ac.importDesc')}
+              onClick={() => void run(runImport)}
+            >
+              {t('ac.import')}
+            </ButtonItem>
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <ButtonItem layout="below" disabled={busy} description={t('ac.backupDesc')} onClick={() => void backup()}>
+              {t('ac.backup')}
+            </ButtonItem>
+          </PanelSectionRow>
+        </>
+      )}
+      {backups.length > 0 && (
         <PanelSectionRow>
-          <ButtonItem layout="below" disabled={busy} onClick={() => void run(runImport)}>
-            {t('ac.button')}
-          </ButtonItem>
+          <div style={{ fontWeight: 'bold', margin: '8px 0 4px' }}>{t('ac.backups')}</div>
         </PanelSectionRow>
       )}
+      {backups.map((b) => (
+        <PanelSectionRow key={b.name}>
+          <Focusable className="dss-backup" flow-children="horizontal">
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div>{new Date(b.created * 1000).toLocaleString()}</div>
+              <div style={{ fontSize: '12px', color: '#9aa' }}>{t('ac.backupVideos', { n: b.videos })}</div>
+            </div>
+            <DialogButton disabled={busy} onClick={() => restore(b)}>
+              {t('ac.restore')}
+            </DialogButton>
+            <DialogButton className="dss-danger" disabled={busy} onClick={() => remove(b)}>
+              {t('ac.deleteBackup')}
+            </DialogButton>
+          </Focusable>
+        </PanelSectionRow>
+      ))}
       {isInstalled() && (
         <PanelSectionRow>
           <ButtonItem layout="below" disabled={busy} onClick={() => confirmUninstall(run)}>

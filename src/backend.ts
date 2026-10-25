@@ -112,10 +112,37 @@ export interface ImportSummary {
   already: number;
   missing: string[];
   skippedOther: number;
-  backup: string;
 }
 
-/** Back up Animation Changer and import its videos and choices. */
+export interface AcBackup {
+  /** Folder name in ~/Backups. */
+  name: string;
+  /** Epoch seconds. */
+  created: number;
+  videos: number;
+}
+
+export async function getAcBackups(): Promise<AcBackup[]> {
+  const res = await call<[], Result<{ backups: AcBackup[] }>>('get_ac_backups');
+  if (!res.ok) throw new Error(res.error);
+  return res.backups;
+}
+
+export async function backupAnimationChanger(): Promise<AcBackup[]> {
+  const res = await call<[], Result<{ backups: AcBackup[] }>>('backup_animation_changer');
+  if (!res.ok) throw new Error(res.error);
+  return res.backups;
+}
+
+export const restoreAcBackup = (name: string) => mutate('restore_ac_backup', name);
+
+export async function deleteAcBackup(name: string): Promise<AcBackup[]> {
+  const res = await call<[string], Result<{ backups: AcBackup[] }>>('delete_ac_backup', name);
+  if (!res.ok) throw new Error(res.error);
+  return res.backups;
+}
+
+/** Import Animation Changer's videos and choices (no backup). */
 export async function importAnimationChanger(): Promise<ImportSummary> {
   const res = await call<[], Result<ImportSummary & { state: BackendState }>>('import_animation_changer');
   if (!res.ok) throw new Error(res.error);
