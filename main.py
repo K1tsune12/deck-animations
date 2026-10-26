@@ -204,12 +204,27 @@ def _own_tree(path):
                 pass
 
 
+_ASSET_REF_RE = re.compile(r'((?:src|href)=")([\w.-]+\.(?:js|css))(")')
+
+
+def _cache_bust(html):
+    """Steam's screensaver view caches page files across restarts, so an
+    updated player.js or config.js would never load: version every reference."""
+    stamp = str(int(time.time() * 1000))
+    return _ASSET_REF_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}?v={stamp}{m.group(3)}", html)
+
+
 def _write_player(folder, config):
     """(Re)write the player page into a screensaver folder."""
     path = os.path.join(SCREENSAVERS_DIR, folder)
     os.makedirs(path, exist_ok=True)
     for name in _PLAYER_FILES:
         shutil.copyfile(os.path.join(_PLAYER_DIR, name), os.path.join(path, name))
+    index = os.path.join(path, "index.html")
+    with open(index, encoding="utf-8") as f:
+        html = f.read()
+    with open(index, "w", encoding="utf-8") as f:
+        f.write(_cache_bust(html))
     with open(os.path.join(path, "config.js"), "w", encoding="utf-8") as f:
         f.write(f"window.SCREENSAVER_CONFIG = {json.dumps(config)};\n")
     with open(os.path.join(path, MARKER), "w", encoding="utf-8") as f:
@@ -407,7 +422,10 @@ def _sync_shuffle():
             "boomerang": bool(_state["installed"][vid].get("boomerang")),
         }
         for vid in ids
-    ] + [{"key": f"classic:{c}", "kind": "page", "src": f"classics/{c}/index.html"} for c in classics]
+    ] + [
+        {"key": f"classic:{c}", "kind": "page", "src": f"classics/{c}/index.html?v={int(time.time() * 1000)}"}
+        for c in classics
+    ]
     if shuffle["order"] == "sequence":
         # the user's order; anything not placed yet goes at the end
         rank = {key: i for i, key in enumerate(shuffle["sequence"])}
@@ -446,7 +464,7 @@ def _write_classic_files(path, classic_id):
         shutil.copyfile(os.path.join(_CLASSICS_DIR, name), os.path.join(path, name))
     shutil.copyfile(os.path.join(_CLASSICS_DIR, classic_id, "main.js"), os.path.join(path, "main.js"))
     with open(os.path.join(path, "index.html"), "w", encoding="utf-8") as f:
-        f.write(_CLASSIC_HTML)
+        f.write(_cache_bust(_CLASSIC_HTML))
     options = {k: v for k, v in _state["classicOptions"].get(classic_id, {}).items() if k != "shuffleInclude"}
     with open(os.path.join(path, "config.js"), "w", encoding="utf-8") as f:
         f.write(f"window.CLASSIC_CONFIG = {json.dumps(options)};\n")

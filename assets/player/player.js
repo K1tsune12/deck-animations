@@ -270,8 +270,8 @@ function Init()
     const plays = Math.max( 1, CONFIG.playsPerVideo || 1 );
     // pop() takes from the end, so a sequence is queued reversed
     const NextRound = () => ( CONFIG.order === 'sequence' ? items.slice().reverse() : Shuffled( items, last ) );
-    let order = NextRound();
     let last = null;
+    let order = NextRound();
     let current = 0;
 
     const PlayNext = () =>
