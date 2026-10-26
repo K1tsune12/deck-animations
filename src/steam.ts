@@ -260,3 +260,34 @@ export async function setPanelPower(on: boolean): Promise<boolean> {
   const res = await gs.SetDisplayPowerState({ estate: on ? 2 : 1 });
   return res?.GetEResult?.() === 1;
 }
+
+// Steam's SuspendResumeStore: the power button (and the power menu) end up in
+// its InitiateSleep(). An own property on the instance shadows the prototype
+// method, so a handler can take a request over and keep the Deck awake.
+interface SuspendStore {
+  InitiateSleep(suppressActualSuspend?: boolean): void;
+}
+
+/** Run `handler` on every suspend request; returning true swallows it. */
+export function interceptSuspend(handler: () => boolean): () => void {
+  const store: SuspendStore | undefined = findModuleExport(
+    (e: any) => typeof e?.InitiateSleep === 'function' && typeof e?.OnSuspendRequest === 'function' && 'm_cSuspendBlockers' in e,
+  );
+  if (!store) {
+    console.warn('[deck-animations] SuspendResumeStore not found');
+    return () => {};
+  }
+  const patched = function (this: SuspendStore, ...args: [boolean?]) {
+    let swallow = false;
+    try {
+      swallow = handler();
+    } catch (err) {
+      console.warn('[deck-animations] suspend handler failed', err);
+    }
+    if (!swallow) Object.getPrototypeOf(store).InitiateSleep.apply(this, args);
+  };
+  store.InitiateSleep = patched;
+  return () => {
+    if (store.InitiateSleep === patched) delete (store as any).InitiateSleep;
+  };
+}

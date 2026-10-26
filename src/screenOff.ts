@@ -1,9 +1,10 @@
 // Watches the screensaver's active state while the plugin is loaded:
 //
-// - Turns the panel off after the last play of a single-video screensaver and
-//   back on as soon as the screensaver closes (any input dismisses it). The
-//   screensaver page runs in an isolated browser view, so it can't tell us
-//   when it finished; we time the plays from the file's exact duration.
+// - Turns the panel off after the last play of a screensaver (or a full pass
+//   of the rotation) and back on as soon as the screensaver closes (any input
+//   dismisses it). The screensaver page runs in an isolated browser view, so
+//   it can't tell us when it finished; we time the plays from the file's
+//   exact duration.
 // - Works around a SteamUI bug: when the idle timer starts the screensaver
 //   while the Quick Access or main menu is open, Steam hides the menu, gives
 //   up on the screensaver ~0.5 s later and brings the menu back. Steam's own
@@ -12,10 +13,15 @@
 // - Stays out of the way around suspend: no re-forcing while the Deck goes to
 //   sleep (a forced screensaver would survive it), and no screensaver right
 //   after waking up.
+// - Once the screensaver has finished (black or display off) the screen looks
+//   off, so the power button wakes it instead of suspending; idle suspend
+//   still goes through.
 
+import { getClientSettings } from './clientSettings';
 import { getState, setDisplayPower } from './backend';
 import {
   folderFromId,
+  interceptSuspend,
   isScreensaverActive,
   onScreensaverActiveChanged,
   previewScreensaver,
@@ -33,6 +39,7 @@ const REFORCE_MAX = 2;
 const MARGIN_MS = 1500; // fade-out + seek slack
 const RESUME_GRACE_MS = 8000; // no screensaver this soon after waking up
 const SLEEP_GAP_MS = 10000; // a timer this late means the Deck was asleep
+const IDLE_SUSPEND_SLACK_MS = 5000; // a suspend this close to the idle timeout is the idle timer
 
 let pollTimer: number | undefined;
 let menuTimer: number | undefined;
@@ -40,6 +47,7 @@ let offTimer: number | undefined;
 let stopNotify: (() => void) | undefined;
 let wasActive = false;
 let displayOff = false;
+let finished = false; // played to the end: black screen or display off
 let currentId = '';
 let menuSeenAt = 0;
 let activatedAt = 0;
@@ -48,6 +56,7 @@ let suspending = false;
 let resumedAt = 0;
 let lastTick = Date.now();
 let stopSuspendHooks: (() => void) | undefined;
+let stopIntercept: (() => void) | undefined;
 
 /** Keep the watcher aware of the active screensaver (fed from client settings). */
 export function setCurrentScreensaverId(id: string): void {
@@ -62,11 +71,11 @@ const PER_ITEM_MS = 600; // start-up latency of each shuffle item
 
 const playMs = (seconds: number, boomerang: boolean) => seconds * (boomerang ? 2 : 1) * 1000;
 
-/** When to switch the panel off: after the plays of a single video, or after
+/** When the screensaver finishes: after the plays of a single video, or after
  *  one full pass of the Shuffle list (random order, but the total is fixed). */
-function plannedOffMs(): number | null {
+function plannedEndMs(): number | null {
   const { playback, installed, shuffle, shuffleFolder, classics, classicOptions } = getState();
-  if (!playback.limit || playback.after !== 'off') return null;
+  if (!playback.limit) return null;
   const folder = folderFromId(currentId);
 
   if (folder === shuffleFolder) {
@@ -92,6 +101,34 @@ function plannedOffMs(): number | null {
 
 /** Panel off/on: gamescope switches the display itself off; the backend's
  *  backlight route is only a fallback (it can only darken the panel). */
+function onFinished(): void {
+  finished = true;
+  if (getState().playback.after === 'off') void setDisplay(false);
+}
+
+/** Seconds of idle before Steam suspends by itself (0 = never). */
+function idleSuspendSec(): number {
+  const s = getClientSettings();
+  const values = [s?.idleSuspendBatterySec ?? 0, s?.idleSuspendAcSec ?? 0].filter((v) => v > 0);
+  return values.length ? Math.min(...values) : 0;
+}
+
+/** Power button while the screensaver looks like a dark screen: wake it up. */
+function onSuspendRequest(): boolean {
+  if (!finished || suspending || !wasActive) return false;
+  const s = getClientSettings();
+  const suspendSec = idleSuspendSec();
+  if (suspendSec) {
+    const ssSec = Math.min(...[s?.idleScreensaverBatterySec ?? 0, s?.idleScreensaverAcSec ?? 0].filter((v) => v > 0), suspendSec);
+    // the screensaver started ssSec into the idle time; Steam's own timer is due now
+    if (Date.now() - activatedAt >= (suspendSec - ssSec) * 1000 - IDLE_SUSPEND_SLACK_MS) return false;
+  }
+  finished = false;
+  if (displayOff) void setDisplay(true);
+  void stopScreensaver().catch(() => {});
+  return true;
+}
+
 async function setDisplay(on: boolean): Promise<void> {
   try {
     const viaGamescope = await setPanelPower(on).catch(() => false);
@@ -120,6 +157,7 @@ function onSuspend(): void {
   suspending = true;
   window.clearTimeout(offTimer);
   offTimer = undefined;
+  finished = false;
   if (wasActive) void stopScreensaver().catch(() => {});
 }
 
@@ -148,11 +186,13 @@ function onActiveChange(active: boolean): void {
       reforce();
     }
     window.clearTimeout(offTimer);
-    const ms = plannedOffMs();
-    if (ms !== null) offTimer = window.setTimeout(() => void setDisplay(false), ms);
+    finished = false;
+    const ms = plannedEndMs();
+    if (ms !== null) offTimer = window.setTimeout(onFinished, ms);
   } else if (!active && wasActive) {
     window.clearTimeout(offTimer);
     offTimer = undefined;
+    finished = false;
     // Steam sometimes drops an idle-started screensaver right away (a menu or
     // overlay grabbing focus); after a minute idle that's not the user
     if (Date.now() - activatedAt < BOUNCE_MS) reforce();
@@ -188,6 +228,11 @@ export function startScreenOffWatcher(): void {
   } catch (err) {
     console.warn('[deck-animations] suspend hooks unavailable', err);
   }
+  try {
+    stopIntercept = interceptSuspend(onSuspendRequest);
+  } catch (err) {
+    console.warn('[deck-animations] power button handling unavailable', err);
+  }
   menuTimer = window.setInterval(() => {
     if (menuStore()?.IsAnySideMenuVisible?.()) menuSeenAt = Date.now();
   }, MENU_POLL_MS);
@@ -198,6 +243,7 @@ export function startScreenOffWatcher(): void {
 export function stopScreenOffWatcher(): void {
   stopNotify?.();
   stopSuspendHooks?.();
+  stopIntercept?.();
   window.clearInterval(menuTimer);
   window.clearInterval(pollTimer);
   window.clearTimeout(offTimer);
