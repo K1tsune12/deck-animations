@@ -1,7 +1,9 @@
 // Shared bits for the generated "classic" screensavers: a full-screen canvas
-// sized for the device pixel ratio, and a frame loop with a clamped dt.
+// sized for the device pixel ratio, and a frame loop with a clamped dt,
+// capped at 30 fps (half the work of 60, and these animations are slow).
 
 const MAX_STEP_SEC = 0.1;
+const FRAME_MS = 1000 / 30 - 2; // slack so a 60 Hz display reliably hits every other vsync
 
 function CreateCanvas()
 {
@@ -31,6 +33,8 @@ function RunLoop( step )
     const Frame = ( now ) =>
     {
         requestAnimationFrame( Frame );
+        if ( last !== undefined && now - last < FRAME_MS )
+            return;
         const dt = last === undefined ? 0 : Math.min( ( now - last ) / 1000, MAX_STEP_SEC );
         last = now;
         step( dt, now / 1000 );

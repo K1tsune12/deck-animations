@@ -29,16 +29,16 @@ import {
   stopScreensaver,
 } from './steam';
 
-const POLL_MS = 1000;
-const MENU_POLL_MS = 250;
-const MENU_RECENT_MS = 800; // menu counts as "open at activation" if seen this recently
+const POLL_MS = 5000; // notifications do the work; this is only a safety net
+const MENU_POLL_MS = 500;
+const MENU_RECENT_MS = 1100; // menu counts as "open at activation" if seen this recently
 const REFORCE_DELAY_MS = 150;
 const BOUNCE_MS = 1000; // deactivated this soon after activating = Steam gave up, not the user
 const REFORCE_WINDOW_MS = 10000;
 const REFORCE_MAX = 2;
 const MARGIN_MS = 1500; // fade-out + seek slack
 const RESUME_GRACE_MS = 8000; // no screensaver this soon after waking up
-const SLEEP_GAP_MS = 10000; // a timer this late means the Deck was asleep
+const SLEEP_GAP_MS = 20000; // a timer this late means the Deck was asleep
 const IDLE_SUSPEND_SLACK_MS = 5000; // a suspend this close to the idle timeout is the idle timer
 
 let pollTimer: number | undefined;
