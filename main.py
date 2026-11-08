@@ -53,7 +53,8 @@ _CLOCK_ENUMS = {
     "font": ("sans", "thin", "serif", "mono"),
     "size": ("s", "m", "l", "xl"),
     "hours": ("24", "12"),
-    "motion": ("drift", "fixed"),
+    "motion": ("drift", "bounce", "float", "fixed"),
+    "speed": ("slow", "normal", "fast"),
     "position": ("center", "top-left", "top", "top-right", "left", "right", "bottom-left", "bottom", "bottom-right", "custom"),
 }
 _CLOCK_BOOLS = ("seconds", "date")
@@ -1439,7 +1440,7 @@ class Plugin:
             if "shuffleInclude" in patch:
                 options["shuffleInclude"] = bool(patch["shuffleInclude"])
             look = False
-            for key in ("color", "color2"):
+            for key in ("color", "color2", "clockColor"):
                 if key in patch:
                     color = str(patch[key] or "")
                     if color and not _COLOR_RE.match(color):

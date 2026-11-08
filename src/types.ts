@@ -101,8 +101,10 @@ export interface ClassicOptions {
   /** Brightness in percent (20-100). */
   dim?: number;
   locale?: string;
-  /** Drift to a new spot every minute (default) or stay pinned. */
-  motion?: 'drift' | 'fixed';
+  /** Slide to a new spot every so often (default), bounce off the edges, wander, or stay pinned. */
+  motion?: ClockMotion;
+  /** How fast the moving ones go. */
+  speed?: ClockSpeed;
   /** Where a pinned clock sits. */
   position?: ClockPosition;
   /** Custom spot, percent of the free space (0 = left/top, 100 = right/bottom). */
@@ -110,7 +112,14 @@ export interface ClassicOptions {
   y?: number;
   /** OLED art only: lay a digital clock over the animation. */
   clock?: boolean;
+  /** OLED art only: the overlay clock's colour ("" = the art's main colour). */
+  clockColor?: string;
 }
+
+export const CLOCK_MOTIONS = ['drift', 'bounce', 'float', 'fixed'] as const;
+export type ClockMotion = (typeof CLOCK_MOTIONS)[number];
+export const CLOCK_SPEEDS = ['slow', 'normal', 'fast'] as const;
+export type ClockSpeed = (typeof CLOCK_SPEEDS)[number];
 
 export const CLOCK_POSITIONS = [
   'center',

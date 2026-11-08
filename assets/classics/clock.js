@@ -13,6 +13,7 @@ const CLOCK_FONTS = {
 const CLOCK_SIZES = { s: 0.65, m: 0.85, l: 1, xl: 1.25 };
 const DRIFT_EVERY_MS = 60 * 1000;
 const DRIFT_MOVE_MS = 20 * 1000;
+const CLOCK_SPEEDS = { slow: 0.5, normal: 1, fast: 2.5 };
 // Pinned spots as a percentage of the free space (0 = left/top, 100 = right/bottom).
 const CLOCK_SPOTS = {
     'center': [ 50, 50 ],
@@ -57,40 +58,107 @@ const Clock = ( () =>
         };
     }
 
-    /** Place `el` (absolutely placed): drifting to a random spot every minute
-     *  (the default, kind to OLED panels) or pinned where the options say. */
+    /** Place `el` (absolutely placed) the way the options say:
+     *  drift  - slide to a new random spot every so often (default, kind to OLED panels)
+     *  bounce - travel in a straight line and bounce off the edges
+     *  float  - wander smoothly without ever stopping
+     *  fixed  - pinned at a preset spot or a custom x/y
+     *  `speed` (slow / normal / fast) scales the three moving ones. */
     function Drift( el )
     {
         el.style.position = 'absolute';
         el.style.left = '0';
         el.style.top = '0';
         el.style.willChange = 'transform';
-        const pinned = cfg.motion === 'fixed';
+        const motion = [ 'drift', 'bounce', 'float', 'fixed' ].includes( cfg.motion ) ? cfg.motion : 'drift';
+        const speed = CLOCK_SPEEDS[ cfg.speed ] || CLOCK_SPEEDS.normal;
         const spot = CLOCK_SPOTS[ cfg.position ] || ( cfg.position === 'custom' ? null : CLOCK_SPOTS.center );
-        const Move = ( instant ) =>
+
+        /** The rectangle the box may occupy: [margin, free width, free height]. */
+        const Free = () =>
         {
             const margin = Math.min( innerWidth, innerHeight ) * 0.04;
-            const freeW = Math.max( 0, innerWidth - el.offsetWidth - margin * 2 );
-            const freeH = Math.max( 0, innerHeight - el.offsetHeight - margin * 2 );
-            let fx = Math.random();
-            let fy = Math.random();
-            if ( pinned )
-            {
-                const px = spot ? spot[ 0 ] : Number( cfg.x );
-                const py = spot ? spot[ 1 ] : Number( cfg.y );
-                fx = Math.min( 100, Math.max( 0, isNaN( px ) ? 50 : px ) ) / 100;
-                fy = Math.min( 100, Math.max( 0, isNaN( py ) ? 50 : py ) ) / 100;
-            }
-            const x = margin + fx * freeW;
-            const y = margin + fy * freeH;
-            el.style.transition = instant ? 'none' : `transform ${ DRIFT_MOVE_MS }ms ease-in-out`;
+            return [ margin, Math.max( 0, innerWidth - el.offsetWidth - margin * 2 ), Math.max( 0, innerHeight - el.offsetHeight - margin * 2 ) ];
+        };
+        const Put = ( x, y, ms ) =>
+        {
+            el.style.transition = ms ? `transform ${ ms }ms ease-in-out` : 'none';
             el.style.transform = `translate(${ x.toFixed( 1 ) }px, ${ y.toFixed( 1 ) }px)`;
         };
-        Move( true );
-        if ( !pinned )
-            setInterval( () => Move( false ), DRIFT_EVERY_MS );
-        addEventListener( 'resize', () => Move( true ) );
-        return Move;
+
+        if ( motion === 'fixed' )
+        {
+            const Move = () =>
+            {
+                const [ margin, freeW, freeH ] = Free();
+                const px = spot ? spot[ 0 ] : Number( cfg.x );
+                const py = spot ? spot[ 1 ] : Number( cfg.y );
+                const fx = Math.min( 100, Math.max( 0, isNaN( px ) ? 50 : px ) ) / 100;
+                const fy = Math.min( 100, Math.max( 0, isNaN( py ) ? 50 : py ) ) / 100;
+                Put( margin + fx * freeW, margin + fy * freeH, 0 );
+            };
+            Move();
+            addEventListener( 'resize', Move );
+            return Move;
+        }
+
+        if ( motion === 'drift' )
+        {
+            const Move = ( instant ) =>
+            {
+                const [ margin, freeW, freeH ] = Free();
+                Put( margin + Math.random() * freeW, margin + Math.random() * freeH, instant ? 0 : DRIFT_MOVE_MS / speed );
+            };
+            Move( true );
+            setInterval( () => Move( false ), DRIFT_EVERY_MS / speed );
+            addEventListener( 'resize', () => Move( true ) );
+            return Move;
+        }
+
+        // bounce and float: a frame loop, in CSS px per second scaled by the screen
+        let [ margin, freeW, freeH ] = Free();
+        let x = margin + Math.random() * freeW;
+        let y = margin + Math.random() * freeH;
+        const Resize = () => { [ margin, freeW, freeH ] = Free(); };
+        addEventListener( 'resize', Resize );
+        // the box is empty on the first frame (text arrives a tick later), so re-measure for a while
+        let settle = 0;
+
+        if ( motion === 'bounce' )
+        {
+            const angle = Math.random() * Math.PI * 2;
+            let vx = Math.cos( angle );
+            let vy = Math.sin( angle );
+            if ( Math.abs( vy ) < 0.3 ) vy = vy < 0 ? -0.3 : 0.3; // never nearly horizontal: boring
+            RunLoop( ( dt ) =>
+            {
+                if ( settle++ < 90 ) Resize();
+                const v = Vmin( 7 ) * speed; // px/s
+                x += vx * v * dt;
+                y += vy * v * dt;
+                const maxX = margin + freeW;
+                const maxY = margin + freeH;
+                if ( x < margin ) { x = margin; vx = Math.abs( vx ); }
+                if ( x > maxX ) { x = maxX; vx = -Math.abs( vx ); }
+                if ( y < margin ) { y = margin; vy = Math.abs( vy ); }
+                if ( y > maxY ) { y = maxY; vy = -Math.abs( vy ); }
+                Put( x, y, 0 );
+            } );
+            return Resize;
+        }
+
+        // float: two slow sine waves per axis, never the same path twice
+        const p = [ Math.random() * 7, Math.random() * 7, Math.random() * 7, Math.random() * 7 ];
+        let t = Math.random() * 1000;
+        RunLoop( ( dt ) =>
+        {
+            if ( settle++ < 90 ) Resize();
+            t += dt * 0.05 * speed;
+            const fx = 0.5 + 0.5 * ( Math.sin( t * 1.0 + p[ 0 ] ) * 0.6 + Math.sin( t * 2.3 + p[ 1 ] ) * 0.4 );
+            const fy = 0.5 + 0.5 * ( Math.sin( t * 1.3 + p[ 2 ] ) * 0.6 + Math.sin( t * 1.9 + p[ 3 ] ) * 0.4 );
+            Put( margin + fx * freeW, margin + fy * freeH, 0 );
+        } );
+        return Resize;
     }
 
     /** Call fn now and at every second boundary. */

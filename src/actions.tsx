@@ -30,7 +30,7 @@ import {
   previewScreensaver,
   setActiveScreensaver,
 } from './steam';
-import { CLOCK_POSITIONS, ClassicOptions, Fit, InstalledEntry, MOVIE_SLOTS, MovieSlot, SLOT_TYPE } from './types';
+import { CLOCK_MOTIONS, CLOCK_POSITIONS, CLOCK_SPEEDS, ClassicOptions, Fit, InstalledEntry, MOVIE_SLOTS, MovieSlot, SLOT_TYPE } from './types';
 
 const FITS: Fit[] = ['cover', 'contain', 'none'];
 
@@ -284,7 +284,12 @@ export const ClassicOptionsModal: FC<{ id: string; closeModal?: () => void }> = 
             disabled={busy}
             onChange={(v) => void run(() => setClassicOptions(id, { clock: v, locale: getLocale() }))}
           />
-          {state.classicOptions[id]?.clock && <ClockOptions id={id} />}
+          {state.classicOptions[id]?.clock && (
+            <>
+              <ColorChoice id={id} field="clockColor" fallback={classic.colors?.[0] ?? '#ffffff'} label={t('clockOpts.clockColor')} />
+              <ClockOptions id={id} />
+            </>
+          )}
         </>
       )}
     </ModalRoot>
@@ -293,7 +298,6 @@ export const ClassicOptionsModal: FC<{ id: string; closeModal?: () => void }> = 
 
 const CLOCK_FONTS = ['thin', 'sans', 'serif', 'mono'] as const;
 const CLOCK_SIZES = ['s', 'm', 'l', 'xl'] as const;
-const CLOCK_MOTIONS = ['drift', 'fixed'] as const;
 
 /** A debounced 0-100 slider for a clock option. */
 const PercentSlider: FC<{ label: string; description?: string; value: number; min?: number; onCommit: (v: number) => void }> = ({
@@ -368,6 +372,15 @@ const ClockOptions: FC<{ id: string }> = ({ id }) => {
         disabled={busy}
         onChange={(v) => set({ motion: v.data })}
       />
+      {motion !== 'fixed' && (
+        <DropdownItem
+          label={t('clockOpts.speed')}
+          rgOptions={CLOCK_SPEEDS.map((s) => ({ data: s, label: t(`clockOpts.speed.${s}`) }))}
+          selectedOption={o.speed ?? 'normal'}
+          disabled={busy}
+          onChange={(v) => set({ speed: v.data })}
+        />
+      )}
       {motion === 'fixed' && (
         <DropdownItem
           label={t('clockOpts.position')}
@@ -426,7 +439,7 @@ function hexToHue(hex: string): number {
 }
 
 /** A colour option of a classic/clock: preset colours or a custom hue. */
-const ColorChoice: FC<{ id: string; field: 'color' | 'color2'; fallback: string; label: string }> = ({
+const ColorChoice: FC<{ id: string; field: 'color' | 'color2' | 'clockColor'; fallback: string; label: string }> = ({
   id,
   field,
   fallback,

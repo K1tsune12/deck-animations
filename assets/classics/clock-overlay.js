@@ -1,12 +1,13 @@
 // A digital clock laid over an OLED art screensaver (option "clock" of the
 // art). Same options as the clocks (font, size, seconds, date, brightness,
-// drift or pinned); its colour is the art's main colour. Wrapped so its names
-// never clash with the art's own script, which shares this page.
+// movement); its colour is "clockColor" or, unset, the art's main colour.
+// Wrapped so its names never clash with the art's own script, which shares
+// this page.
 
 ( () =>
 {
     const box = Clock.Box();
-    box.style.color = Clock.color( '#ffffff' );
+    box.style.color = Clock.cfg.clockColor || Clock.color( '#ffffff' );
     box.style.textShadow = '0 0 12px rgba(0, 0, 0, 0.9)';
 
     const time = document.createElement( 'div' );
