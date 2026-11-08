@@ -93,6 +93,7 @@ import {
   classicName,
 } from './classics';
 import { CSS, PostCard, PostModal } from './components';
+import { LiveArt } from './liveArt';
 import { t, useLanguage } from './i18n';
 import { FinishSection, SettingsPanel, ShuffleSection } from './SettingsPanel';
 import { ClassicOptions, Fit, GifResult, InstalledEntry, MOVIE_SLOTS, MovieFit, MovieSlot, PostLike, RepoPost } from './types';
@@ -268,6 +269,7 @@ const ClassicCard: FC<{ classic: Classic; installed: boolean }> = ({ classic, in
   return (
     <Focusable className="dss-card dss-classic" flow-children="vertical">
       <div className="dss-thumb" style={{ background: classic.art }}>
+        <LiveArt id={classic.id} />
         {installed && <span className="dss-tag dss-installed">{t('common.installed')}</span>}
       </div>
       <div className="dss-info">
@@ -677,13 +679,14 @@ const ItemMeta: FC<{ item: LibItem; ctx: LibContext }> = ({ item, ctx }) => {
 };
 
 /** Thumbnail that opens the full-screen preview when activated. */
-const Thumb: FC<{ src?: string; art?: string; onPreview: () => void }> = ({ src, art, onPreview }) => (
+const Thumb: FC<{ src?: string; art?: string; classicId?: string; onPreview: () => void }> = ({ src, art, classicId, onPreview }) => (
   <Focusable className="dss-thumb-btn" onActivate={onPreview}>
     {src ? (
       <img src={src} loading="lazy" />
     ) : (
-      <div className="dss-row-placeholder" style={art ? { background: art } : undefined}>
+      <div className="dss-row-placeholder" style={art ? { background: art, position: 'relative', overflow: 'hidden' } : undefined}>
         {!art && <FaFilm size={28} />}
+        {classicId && <LiveArt id={classicId} />}
       </div>
     )}
   </Focusable>
@@ -752,7 +755,7 @@ const LibraryItem: FC<{ item: LibItem; ctx: LibContext; grid: boolean; selection
   const [busy, run] = useBusy();
   const preview = () =>
     void run(() => (item.kind === 'entry' ? previewEntry(item.entry) : previewFolder(classicFolder(item.classic.id))));
-  const thumb = item.kind === 'entry' ? { src: item.entry.thumbnail } : { art: item.classic.art };
+  const thumb = item.kind === 'entry' ? { src: item.entry.thumbnail } : { art: item.classic.art, classicId: item.classic.id };
   const off = itemDisabled(item, ctx);
   const check = selection && (
     <DialogButton
@@ -1332,6 +1335,8 @@ interface RotationItem {
   title: string;
   thumbnail?: string;
   art?: string;
+  /** A generated screensaver: its thumbnail runs the real animation. */
+  classicId?: string;
   included: boolean;
   inUse: string[];
   uses: { label: string; fn: () => Promise<unknown> }[];
@@ -1354,7 +1359,7 @@ const RotationRow: FC<{ item: RotationItem; onSet: (keys: string[], v: boolean) 
     return (
       <Focusable className={item.included ? 'dss-lib dss-lib-card dss-selected' : 'dss-lib dss-lib-card'} flow-children="column">
         <div className="dss-card-thumb">
-          <Thumb src={item.thumbnail} art={item.art} onPreview={() => void run(item.preview)} />
+          <Thumb src={item.thumbnail} art={item.art} classicId={item.classicId} onPreview={() => void run(item.preview)} />
           <span className={item.included ? 'dss-check-badge dss-check-badge-on' : 'dss-check-badge'}>
             {item.included ? <FaCheckSquare size={22} /> : <FaRegSquare size={22} />}
           </span>
@@ -1388,7 +1393,7 @@ const RotationRow: FC<{ item: RotationItem; onSet: (keys: string[], v: boolean) 
   return (
     <Focusable className="dss-lib dss-lib-row dss-rot-row" flow-children="horizontal">
       {item.position !== undefined && <div className="dss-pos">{item.position}</div>}
-      <Thumb src={item.thumbnail} art={item.art} onPreview={() => void run(item.preview)} />
+      <Thumb src={item.thumbnail} art={item.art} classicId={item.classicId} onPreview={() => void run(item.preview)} />
       <div className="dss-lib-info">
         <div className="dss-title">{item.title}</div>
         {item.inUse.length > 0 && (
@@ -1564,6 +1569,7 @@ const ScreensaverPoolView: FC = () => {
         key: `classic:${c.id}`,
         title: `${classicName(c)} · ${t(c.oled ? 'type.oled' : 'type.classic')}`,
         art: c.art,
+        classicId: c.id,
         included: !!state.classicOptions[c.id]?.shuffleInclude,
         inUse: activeFolder === folder ? [activeLabel] : [],
         uses: [{ label: t('common.use'), fn: () => useFolder(folder, classicName(c)) }],

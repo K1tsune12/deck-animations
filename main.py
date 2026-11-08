@@ -584,14 +584,41 @@ def _classic_folder(classic_id):
     return f"classic-{classic_id}"
 
 
+def _classic_options(classic_id):
+    """What a generated screensaver's page reads as CLASSIC_CONFIG."""
+    options = {k: v for k, v in _state["classicOptions"].get(classic_id, {}).items() if k not in ("shuffleInclude", "disabled")}
+    if not options.get("locale") and _state["locale"]:
+        options["locale"] = _state["locale"]
+    return options
+
+
+def _classic_page(classic_id):
+    """The whole page of a generated screensaver as one HTML string (scripts
+    inline), for the live thumbnails in the plugin's own pages."""
+    options = _classic_options(classic_id)
+    overlay = classic_id in OLED_ART and bool(options.get("clock"))
+    clock = classic_id in CLOCKS or overlay
+
+    def read(name):
+        with open(os.path.join(_CLASSICS_DIR, name), encoding="utf-8") as f:
+            return f.read().replace("</script", "<\\/script")
+
+    head = [f"<style>{read('common.css')}</style>", f"<script>{read('common.js')}</script>",
+            f"<script>window.CLASSIC_CONFIG = {json.dumps(options)};</script>"]
+    if clock:
+        head.append(f"<script>{read('clock.js')}</script>")
+    body = [f"<script>{read(os.path.join(classic_id, 'main.js'))}</script>"]
+    if overlay:
+        body.append(f"<script>{read('clock-overlay.js')}</script>")
+    return f"<!DOCTYPE html><html><head><meta charset='UTF-8'>{''.join(head)}</head><body>{''.join(body)}</body></html>"
+
+
 def _write_classic_files(path, classic_id, standalone=True):
     """The page of a generated screensaver from assets/classics, into path.
     standalone: its own Steam screensaver (not an item of the rotation, which
     times its items itself), so it honours the "end after N minutes" setting."""
     os.makedirs(path, exist_ok=True)
-    options = {k: v for k, v in _state["classicOptions"].get(classic_id, {}).items() if k not in ("shuffleInclude", "disabled")}
-    if not options.get("locale") and _state["locale"]:
-        options["locale"] = _state["locale"]
+    options = _classic_options(classic_id)
     overlay = classic_id in OLED_ART and bool(options.get("clock"))
     clock = classic_id in CLOCKS or overlay
     shared = ["common.css", "common.js"]
@@ -1450,6 +1477,15 @@ class Plugin:
             return {"ok": True, "folder": PREVIEW_FOLDER}
         except Exception as err:  # pylint: disable=broad-except
             decky.logger.exception("prepare_preview_media failed")
+            return {"ok": False, "error": str(err)}
+
+    async def get_classic_pages(self):
+        """Every generated screensaver as one self-contained page, with its current
+        options, so the plugin's cards can run the real animation as a thumbnail."""
+        try:
+            return {"ok": True, "pages": {c: _classic_page(c) for c in CLASSICS}}
+        except Exception as err:  # pylint: disable=broad-except
+            decky.logger.exception("get_classic_pages failed")
             return {"ok": False, "error": str(err)}
 
     async def prepare_preview_classic(self, classic_id: str):

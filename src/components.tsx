@@ -11,7 +11,10 @@ export const CSS = `
 .dss-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 15px; }
 .dss-card { background: #0008; border-radius: 4px; overflow: hidden; transition: transform 0.1s, box-shadow 0.1s; }
 .dss-card.gpfocus, .dss-card:hover { box-shadow: 0 0 0 2px #fff; transform: scale(1.02); }
-.dss-thumb { position: relative; aspect-ratio: 16 / 10; background: #000; }
+.dss-thumb { position: relative; aspect-ratio: 16 / 10; background: #000; overflow: hidden; }
+.dss-live { position: absolute; inset: 0; pointer-events: none; }
+.dss-live iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: transparent; }
+.dss-thumb .dss-tag { z-index: 1; }
 .dss-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .dss-tag { position: absolute; top: 6px; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
 .dss-type { left: 6px; background: #000a; color: #ddd; }
