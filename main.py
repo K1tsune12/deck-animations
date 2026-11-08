@@ -1390,15 +1390,11 @@ class Plugin:
             fit = entry.get("fit") or _default_fit()
             boomerang = entry["boomerang"]
             if entry.get("type") in ("boot", "suspend"):
-                # show it the way Steam will play it at boot/suspend: the
-                # 1920x1080 copy for fit/fill/stretch, or the original cropped
+                # show it the way Steam will play it at boot/suspend, framed by the
+                # player itself: re-encoding here made a preview wait 15-25 s
                 movie_fit = entry.get("movieFit") if entry.get("movieFit") in MOVIE_FITS else _state["movies"].get("fit", "original")
                 boomerang = False
-                if movie_fit == "original":
-                    fit = "cover"
-                else:
-                    src = await _fitted_movie(video_id, movie_fit)
-                    fit = "fill"
+                fit = {"original": "cover", "contain": "contain", "cover": "cover", "stretch": "fill"}[movie_fit]
             name = "video" + os.path.splitext(src)[1]
             _remove_folder(PREVIEW_FOLDER)
             path = _write_player(
