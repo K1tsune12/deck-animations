@@ -196,6 +196,8 @@ export interface GifResult {
   title: string;
   /** Small animated preview (webp). */
   thumbnail: string;
+  /** Full-size animated WebP, for the full-screen preview. */
+  full?: string;
   width: number;
   height: number;
   url: string;

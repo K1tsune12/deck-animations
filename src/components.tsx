@@ -2,7 +2,7 @@ import { DialogButton, Focusable, ModalRoot } from '@decky/ui';
 import { FC } from 'react';
 import { FaDownload, FaThumbsUp } from 'react-icons/fa';
 
-import { slotsFor, useAsScreensaver, useBusy, useForSlot } from './actions';
+import { previewEntry, previewMedia, slotsFor, useAsScreensaver, useBusy, useForSlot } from './actions';
 import { install, uninstall, useBackendState } from './backend';
 import { t, useLanguage } from './i18n';
 import { PostLike } from './types';
@@ -108,6 +108,14 @@ export const CSS = `
 .dss-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
 .dss-chips .DialogButton { width: auto !important; min-width: 0 !important; padding: 4px 12px !important; font-size: 13px !important; line-height: 18px !important; flex: none; }
 .dss-chips .dss-chip-on { background: #1a9fff !important; color: #fff !important; }
+/* our coloured buttons hide Steam's focus highlight: draw a white ring on top */
+.dss-chips .DialogButton.gpfocus, .dss-chip-on.gpfocus, .dss-in.gpfocus, .dss-check-on.gpfocus, .dss-icon-btn.gpfocus {
+  box-shadow: 0 0 0 2px #fff, 0 0 12px #ffffff66 !important;
+}
+.dss-chips .dss-chip-on.gpfocus { background: #4db3ff !important; }
+.dss-lib .dss-in { background: #3f9a2e !important; color: #fff !important; }
+.dss-lib .dss-in.gpfocus { background: #5cc348 !important; }
+.dss-lib .dss-out { opacity: 0.8; }
 .dss-item { background: #0008; border-radius: 4px; padding: 8px; }
 .dss-item .dss-row { background: none; padding: 0; }
 .dss-sub { font-size: 12px; color: #9aa; }
@@ -197,6 +205,12 @@ export const PostModal: FC<{ post: PostLike; closeModal?: () => void }> = ({ pos
           )}
           <div style={{ flex: 1 }} />
           <Focusable style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
+            <DialogButton
+              disabled={busy || !(entry || post.video)}
+              onClick={() => void run(() => (entry ? previewEntry(entry) : previewMedia(post.video, 'video')))}
+            >
+              {t('common.previewFull')}
+            </DialogButton>
             {!entry && (
               <DialogButton disabled={busy} onClick={() => void run(() => install(post))}>
                 {busy ? t('common.downloading') : t('repo.addLibrary')}

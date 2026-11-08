@@ -143,7 +143,12 @@ function QuickPanel() {
       <PanelSection>
         <PanelSectionRow>
           <ButtonItem layout="below" onClick={() => openManager('boot')}>
-            {t('qam.browse')}
+            {t('qam.browseMovies')}
+          </ButtonItem>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={() => openManager('clocks')}>
+            {t('qam.browseSs')}
           </ButtonItem>
         </PanelSectionRow>
         <PanelSectionRow>

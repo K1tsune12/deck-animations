@@ -44,8 +44,10 @@ import {
   useFolder,
   useForSlot,
   useScreensaverChoices,
+  previewClassic,
   previewEntry,
   previewFolder,
+  previewMedia,
   fitsSlot,
   errorText,
   slotsFor,
@@ -99,21 +101,29 @@ import { folderFromId } from './steam';
 
 export const MANAGER_ROUTE = '/deck-animations';
 
-type TabId = 'explore' | 'oled' | 'library' | 'rotation' | 'settings';
-type ExploreView = 'boot' | 'suspend' | 'classics' | 'gifs';
-const EXPLORE_VIEWS: ExploreView[] = ['boot', 'suspend', 'classics', 'gifs'];
+// Tabs by purpose: what Steam plays at boot/suspend, what becomes a screensaver,
+// then what you have (library), how it rotates, and settings.
+type TabId = 'movies' | 'screensavers' | 'library' | 'rotation' | 'settings';
+type MovieView = 'boot' | 'suspend';
+const MOVIE_VIEWS: MovieView[] = ['boot', 'suspend'];
+type SsView = 'clocks' | 'art' | 'classics' | 'gifs';
+const SS_VIEWS: SsView[] = ['clocks', 'art', 'classics', 'gifs'];
 
 // The route can stay mounted between visits, so the requested tab is pushed to
 // the live page as well as kept for the next mount.
-let requestedTab: TabId = 'explore';
-let requestedView: ExploreView = 'boot';
+let requestedTab: TabId = 'movies';
+let requestedMovieView: MovieView = 'boot';
+let requestedSsView: SsView = 'clocks';
 const tabListeners = new Set<() => void>();
 
-/** Open the manager page on a given tab (from the Quick Access menu). */
-export function openManager(target: TabId | ExploreView): void {
-  if ((EXPLORE_VIEWS as string[]).includes(target)) {
-    requestedTab = 'explore';
-    requestedView = target as ExploreView;
+/** Open the manager page on a given tab or section (from the Quick Access menu). */
+export function openManager(target: TabId | MovieView | SsView): void {
+  if ((MOVIE_VIEWS as string[]).includes(target)) {
+    requestedTab = 'movies';
+    requestedMovieView = target as MovieView;
+  } else if ((SS_VIEWS as string[]).includes(target)) {
+    requestedTab = 'screensavers';
+    requestedSsView = target as SsView;
   } else {
     requestedTab = target as TabId;
   }
@@ -264,6 +274,12 @@ const ClassicCard: FC<{ classic: Classic; installed: boolean }> = ({ classic, in
         <div className="dss-title">{classicName(classic)}</div>
         <div className="dss-desc">{classicDescription(classic)}</div>
         <Focusable className="dss-actions" flow-children="horizontal">
+          <DialogButton
+            disabled={busy}
+            onClick={() => void run(() => (installed ? previewFolder(folder) : previewClassic(classic.id)))}
+          >
+            {t('common.preview')}
+          </DialogButton>
           {!installed ? (
             <DialogButton disabled={busy} onClick={() => void run(() => installClassic(classic.id))}>
               {t('common.install')}
@@ -273,15 +289,10 @@ const ClassicCard: FC<{ classic: Classic; installed: boolean }> = ({ classic, in
               <DialogButton disabled={busy} onClick={() => void run(() => useFolder(folder, classicName(classic)))}>
                 {t('common.use')}
               </DialogButton>
-              {classic.oled && (
-                <>
-                  <DialogButton disabled={busy} onClick={() => void run(() => previewFolder(folder))}>
-                    {t('common.preview')}
-                  </DialogButton>
-                  <DialogButton disabled={busy} onClick={() => showModal(<ClassicOptionsModal id={classic.id} />)}>
-                    {t('common.options')}
-                  </DialogButton>
-                </>
+              {(classic.oled || classic.colors || classic.id === 'rain') && (
+                <DialogButton disabled={busy} onClick={() => showModal(<ClassicOptionsModal id={classic.id} />)}>
+                  {t('common.options')}
+                </DialogButton>
               )}
               <DialogButton
                 className="dss-danger"
@@ -298,43 +309,17 @@ const ClassicCard: FC<{ classic: Classic; installed: boolean }> = ({ classic, in
   );
 };
 
-const ClassicsTab: FC = () => {
+/** A grid of generated screensavers (clocks, OLED art or classics) with a hint on top. */
+const ClassicGrid: FC<{ hint: string; items: Classic[] }> = ({ hint, items }) => {
   const state = useBackendState();
   return (
     <div>
-      <Toolbar>
-        <Hint>{t('classics.hint')}</Hint>
-      </Toolbar>
-      <Focusable className="dss-grid">
-        {ANIMATIONS.map((c) => (
-          <ClassicCard key={c.id} classic={c} installed={state.classics.includes(c.id)} />
-        ))}
-      </Focusable>
-    </div>
-  );
-};
-
-/** OLED tab: clocks and generative art on pure black, always moving. */
-const OledTab: FC = () => {
-  const state = useBackendState();
-  const section = (title: string, hint: string, items: Classic[]) => (
-    <>
-      <h3 style={{ margin: '14px 0 4px' }}>{title}</h3>
       <Hint>{hint}</Hint>
-      <Focusable className="dss-grid">
+      <Focusable className="dss-grid" flow-children="grid">
         {items.map((c) => (
           <ClassicCard key={c.id} classic={c} installed={state.classics.includes(c.id)} />
         ))}
       </Focusable>
-    </>
-  );
-  return (
-    <div>
-      <Toolbar>
-        <Hint>{t('oled.hint')}</Hint>
-      </Toolbar>
-      {section(t('oled.clocks'), t('oled.clocksHint'), CLOCKS)}
-      {section(t('oled.art'), t('oled.artHint'), OLED_ART)}
     </div>
   );
 };
@@ -385,6 +370,12 @@ const GifModal: FC<{ gif: GifResult; query: string; closeModal?: () => void }> =
         <Focusable style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <h3 style={{ margin: 0 }}>{gif.title}</h3>
           <div style={{ color: '#9aa', fontSize: '12px' }}>{t('gifs.modalHint')}</div>
+          <DialogButton
+            disabled={busy}
+            onClick={() => void run(() => (entry ? previewEntry(entry) : previewMedia(gif.full || gif.thumbnail, 'image')))}
+          >
+            {t('common.previewFull')}
+          </DialogButton>
           {entry ? (
             <DialogButton disabled={busy} onClick={() => void run(() => useAsScreensaver(entry))}>
               {t('common.usePreview')}
@@ -1353,24 +1344,58 @@ interface RotationItem {
   moveDown?: () => Promise<unknown>;
 }
 
-const RotationRow: FC<{ item: RotationItem; onSet: (keys: string[], v: boolean) => Promise<unknown> }> = ({
+const RotationRow: FC<{ item: RotationItem; onSet: (keys: string[], v: boolean) => Promise<unknown>; grid?: boolean }> = ({
   item,
   onSet,
+  grid,
 }) => {
   const [busy, run] = useBusy();
+  if (grid)
+    return (
+      <Focusable className={item.included ? 'dss-lib dss-lib-card dss-selected' : 'dss-lib dss-lib-card'} flow-children="column">
+        <div className="dss-card-thumb">
+          <Thumb src={item.thumbnail} art={item.art} onPreview={() => void run(item.preview)} />
+          <span className={item.included ? 'dss-check-badge dss-check-badge-on' : 'dss-check-badge'}>
+            {item.included ? <FaCheckSquare size={22} /> : <FaRegSquare size={22} />}
+          </span>
+        </div>
+        <div className="dss-lib-info">
+          <div className="dss-title">{item.title}</div>
+          {item.inUse.length > 0 && (
+            <div className="dss-meta-line">
+              <span className="dss-st dss-st-use">
+                <FaPlayCircle /> {item.inUse.join(' · ')}
+              </span>
+            </div>
+          )}
+        </div>
+        <Focusable className="dss-lib-actions" flow-children="row">
+          <DialogButton
+            className={item.included ? 'dss-row-btn dss-in' : 'dss-row-btn dss-out'}
+            disabled={busy}
+            onClick={() => void run(() => onSet([item.key], !item.included))}
+          >
+            {item.included ? t('rot.in') : t('rot.add')}
+          </DialogButton>
+          {item.uses.map((u) => (
+            <DialogButton key={u.label} className="dss-row-btn" disabled={busy} onClick={() => void run(u.fn)}>
+              {u.label}
+            </DialogButton>
+          ))}
+        </Focusable>
+      </Focusable>
+    );
   return (
-    <Focusable className="dss-item dss-row dss-rot-row" flow-children="horizontal">
+    <Focusable className="dss-lib dss-lib-row dss-rot-row" flow-children="horizontal">
       {item.position !== undefined && <div className="dss-pos">{item.position}</div>}
       <Thumb src={item.thumbnail} art={item.art} onPreview={() => void run(item.preview)} />
-      <div className="dss-row-info">
+      <div className="dss-lib-info">
         <div className="dss-title">{item.title}</div>
         {item.inUse.length > 0 && (
-          <div className="dss-badges" style={{ marginTop: '4px' }}>
-            {item.inUse.map((label) => (
-              <Badge key={label} kind="slot">
-                {label}
-              </Badge>
-            ))}
+          <div className="dss-meta-line">
+            <span className="dss-st dss-st-use">
+              <FaPlayCircle /> {item.inUse.join(' · ')}
+            </span>
           </div>
         )}
       </div>
@@ -1418,7 +1443,11 @@ const RotationList: FC<{
   const [busy, run] = useBusy();
   const [query, setQuery] = useState('');
   const [count, setCount] = useState(LIBRARY_PAGE);
+  const [view, setView] = useState<'list' | 'grid'>(libView);
   useEffect(() => setCount(LIBRARY_PAGE), [query]);
+  // the playlist order (up/down arrows) only makes sense as a list
+  const sequence = items.some((i) => i.moveUp || i.moveDown);
+  const grid = view === 'grid' && !sequence;
 
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const shown = items.filter((i) => words.every((w) => i.title.toLowerCase().includes(w)));
@@ -1442,10 +1471,27 @@ const RotationList: FC<{
         <DialogButton style={smallButton} disabled={busy || !shown.length} onClick={() => void setShown(false)}>
           {t('rot.none')}
         </DialogButton>
+        {!sequence && (
+          <DialogButton
+            className="dss-icon-btn"
+            style={smallButton}
+            onClick={() => {
+              libView = view === 'list' ? 'grid' : 'list';
+              try {
+                localStorage.setItem(VIEW_KEY, libView);
+              } catch {
+                // only a convenience
+              }
+              setView(libView);
+            }}
+          >
+            {view === 'list' ? <FaTh /> : <FaThList />} {view === 'list' ? t('lib.viewGrid') : t('lib.viewList')}
+          </DialogButton>
+        )}
       </Toolbar>
-      <Focusable style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <Focusable className={grid ? 'dss-lib-grid' : 'dss-lib-list'} flow-children={grid ? 'grid' : 'column'}>
         {shown.slice(0, count).map((item) => (
-          <RotationRow key={item.key} item={item} onSet={onSet} />
+          <RotationRow key={item.key} item={item} onSet={onSet} grid={grid} />
         ))}
       </Focusable>
       {shown.length > count && (
@@ -1607,22 +1653,54 @@ const RotationTab: FC<{ view: RotationView; onView: (v: RotationView) => void }>
 
 // ---------------------------------------------------------------- page
 
-const ExploreTab: FC<{ view: ExploreView; onView: (v: ExploreView) => void; installedIds: Set<string> }> = ({
+/** Sub-sections of a tab, as chips. */
+function SubTabs<V extends string>({
+  views,
+  view,
+  onView,
+  label,
+}: {
+  views: V[];
+  view: V;
+  onView: (v: V) => void;
+  label: (v: V) => string;
+}) {
+  return (
+    <Focusable className="dss-chips dss-subtabs" flow-children="horizontal">
+      {views.map((v) => (
+        <DialogButton key={v} className={v === view ? 'dss-chip dss-chip-on' : 'dss-chip'} onClick={() => onView(v)}>
+          {label(v)}
+        </DialogButton>
+      ))}
+    </Focusable>
+  );
+}
+
+/** Boot & suspend: the steamdeckrepo catalog. */
+const MoviesTab: FC<{ view: MovieView; onView: (v: MovieView) => void; installedIds: Set<string> }> = ({
   view,
   onView,
   installedIds,
 }) => (
   <div>
-    <Focusable className="dss-chips dss-subtabs" flow-children="horizontal">
-      {EXPLORE_VIEWS.map((v) => (
-        <DialogButton key={v} className={v === view ? 'dss-chip dss-chip-on' : 'dss-chip'} onClick={() => onView(v)}>
-          {t(`explore.${v}`)}
-        </DialogButton>
-      ))}
-    </Focusable>
+    <SubTabs views={MOVIE_VIEWS} view={view} onView={onView} label={(v) => t(`explore.${v}`)} />
     {view === 'boot' && <RepoTab key="boot" type="boot" installedIds={installedIds} />}
     {view === 'suspend' && <RepoTab key="suspend" type="suspend" installedIds={installedIds} />}
-    {view === 'classics' && <ClassicsTab />}
+  </div>
+);
+
+/** Screensavers: everything that becomes one, in one place. */
+const ScreensaversTab: FC<{ view: SsView; onView: (v: SsView) => void }> = ({ view, onView }) => (
+  <div>
+    <SubTabs
+      views={SS_VIEWS}
+      view={view}
+      onView={onView}
+      label={(v) => (v === 'clocks' ? t('oled.clocks') : v === 'art' ? t('ss.art') : t(`explore.${v}`))}
+    />
+    {view === 'clocks' && <ClassicGrid hint={`${t('oled.hint')} ${t('oled.clocksHint')}`} items={CLOCKS} />}
+    {view === 'art' && <ClassicGrid hint={`${t('oled.hint')} ${t('oled.artHint')}`} items={OLED_ART} />}
+    {view === 'classics' && <ClassicGrid hint={t('classics.hint')} items={ANIMATIONS} />}
     {view === 'gifs' && <GifsTab />}
   </div>
 );
@@ -1634,7 +1712,8 @@ export const ManagerPage: FC = () => {
   useLanguage();
   const state = useBackendState();
   const [tab, setTab] = useState<TabId>(requestedTab);
-  const [view, setView] = useState<ExploreView>(requestedView);
+  const [movieView, setMovieView] = useState<MovieView>(requestedMovieView);
+  const [ssView, setSsView] = useState<SsView>(requestedSsView);
   const [rotationView, setRotationView] = useState<RotationView>('boot');
   const installedIds = useMemo(() => new Set(state.installed.map((e) => e.id)), [state.installed]);
 
@@ -1643,7 +1722,8 @@ export const ManagerPage: FC = () => {
     // also follow requests made while this page stays mounted
     const follow = () => {
       setTab(requestedTab);
-      setView(requestedView);
+      setMovieView(requestedMovieView);
+      setSsView(requestedSsView);
     };
     tabListeners.add(follow);
     follow();
@@ -1691,22 +1771,36 @@ export const ManagerPage: FC = () => {
         }}
         tabs={[
           {
-            id: 'explore',
-            title: t('tab.explore'),
+            id: 'movies',
+            title: t('tab.movies'),
             content: (
               <Padded>
-                <ExploreTab
-                  view={view}
+                <MoviesTab
+                  view={movieView}
                   onView={(v) => {
-                    setView(v);
-                    requestedView = v;
+                    setMovieView(v);
+                    requestedMovieView = v;
                   }}
                   installedIds={installedIds}
                 />
               </Padded>
             ),
           },
-          { id: 'oled', title: t('tab.oled'), content: <Padded><OledTab /></Padded> },
+          {
+            id: 'screensavers',
+            title: t('tab.screensavers'),
+            content: (
+              <Padded>
+                <ScreensaversTab
+                  view={ssView}
+                  onView={(v) => {
+                    setSsView(v);
+                    requestedSsView = v;
+                  }}
+                />
+              </Padded>
+            ),
+          },
           { id: 'library', title: t('tab.library', { n: libraryCount }), content: <Padded><LibraryTab /></Padded> },
           {
             id: 'rotation',

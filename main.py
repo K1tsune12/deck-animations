@@ -1419,6 +1419,55 @@ class Plugin:
             decky.logger.exception("prepare_preview failed")
             return {"ok": False, "error": str(err)}
 
+    async def prepare_preview_media(self, url: str, kind: str = "video"):
+        """Point the preview folder at something online, without adding it to the
+        library: a video ("video", e.g. a steamdeckrepo post) or an animated image
+        ("image", e.g. a GIPHY WebP), shown with the default screensaver size."""
+        try:
+            url = str(url or "")
+            if not url.startswith("https://"):
+                return {"ok": False, "error": "only https links can be previewed"}
+            _remove_folder(PREVIEW_FOLDER)
+            if kind == "image":
+                path = os.path.join(SCREENSAVERS_DIR, PREVIEW_FOLDER)
+                os.makedirs(path, exist_ok=True)
+                fit = {"none": "scale-down", "fill": "fill"}.get(_default_fit(), _default_fit())
+                with open(os.path.join(path, "index.html"), "w", encoding="utf-8") as f:
+                    f.write(
+                        "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Decky Screensaver</title>"
+                        "<style>html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden}"
+                        f"img{{width:100%;height:100%;object-fit:{fit};display:block}}</style></head>"
+                        f"<body><img src={json.dumps(url)}></body></html>"
+                    )
+                with open(os.path.join(path, MARKER), "w", encoding="utf-8") as f:
+                    f.write("Managed by the Deck Animations plugin.\n")
+            else:
+                path = _write_player(
+                    PREVIEW_FOLDER,
+                    {"mode": "single", "videos": [url], "fits": [_default_fit()], "boomerang": False, "plays": 0},
+                )
+            _own_tree(path)
+            return {"ok": True, "folder": PREVIEW_FOLDER}
+        except Exception as err:  # pylint: disable=broad-except
+            decky.logger.exception("prepare_preview_media failed")
+            return {"ok": False, "error": str(err)}
+
+    async def prepare_preview_classic(self, classic_id: str):
+        """Point the preview folder at a generated screensaver, installed or not."""
+        try:
+            if classic_id not in CLASSICS:
+                return {"ok": False, "error": "unknown classic"}
+            _remove_folder(PREVIEW_FOLDER)
+            path = os.path.join(SCREENSAVERS_DIR, PREVIEW_FOLDER)
+            _write_classic_files(path, classic_id, standalone=False)
+            with open(os.path.join(path, MARKER), "w", encoding="utf-8") as f:
+                f.write("Managed by the Deck Animations plugin.\n")
+            _own_tree(path)
+            return {"ok": True, "folder": PREVIEW_FOLDER}
+        except Exception as err:  # pylint: disable=broad-except
+            decky.logger.exception("prepare_preview_classic failed")
+            return {"ok": False, "error": str(err)}
+
     async def end_preview(self):
         """Remove the preview folder so it doesn't linger in Steam's list."""
         _remove_folder(PREVIEW_FOLDER)
@@ -1750,11 +1799,15 @@ class Plugin:
             for gif in data.get("data", []):
                 images = gif.get("images", {})
                 still = images.get("fixed_width", {})
+                original = images.get("original", {})
                 gifs.append(
                     {
                         "id": gif["id"],
                         "title": gif.get("title") or gif["id"],
                         "thumbnail": still.get("webp") or still.get("url", ""),
+                        # animated WebP at full size, for the full-screen preview
+                        # (GIPHY's MP4 is H.264, which Steam cannot decode)
+                        "full": original.get("webp") or still.get("webp") or still.get("url", ""),
                         "width": int(still.get("width") or 200),
                         "height": int(still.get("height") or 150),
                         "url": gif.get("url", ""),

@@ -116,6 +116,20 @@ export async function clearCache(): Promise<number> {
 export const endPreview = () => call<[], unknown>('end_preview').catch(() => {});
 
 /** Point the preview folder at a library video; returns the folder name. */
+/** Preview folder for something online (a repo video or a GIPHY image), not in the library. */
+export async function preparePreviewMedia(url: string, kind: 'video' | 'image'): Promise<string> {
+  const res = await call<[string, string], Result<{ folder: string }>>('prepare_preview_media', url, kind);
+  if (!res.ok) throw new Error(res.error);
+  return res.folder;
+}
+
+/** Preview folder for a generated screensaver, installed or not. */
+export async function preparePreviewClassic(id: string): Promise<string> {
+  const res = await call<[string], Result<{ folder: string }>>('prepare_preview_classic', id);
+  if (!res.ok) throw new Error(res.error);
+  return res.folder;
+}
+
 export async function preparePreview(id: string): Promise<string> {
   const res = await call<[string], Result<{ folder: string }>>('prepare_preview', id);
   if (!res.ok) throw new Error(res.error);

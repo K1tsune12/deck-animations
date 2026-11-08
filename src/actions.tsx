@@ -11,6 +11,8 @@ import {
   importUrl,
   importVideo,
   preparePreview,
+  preparePreviewClassic,
+  preparePreviewMedia,
   scanCustomFolder,
   setClassicOptions,
   setMovie,
@@ -145,6 +147,16 @@ export async function previewFolder(folder: string, onEnd?: () => void): Promise
 
 const PREVIEW_SETTLE_MS = 1500;
 const PREVIEW_RESTORE_HOLD_MS = 4000;
+
+/** Full-screen preview of something online that is not in the library yet. */
+export async function previewMedia(url: string, kind: 'video' | 'image'): Promise<void> {
+  await previewFolder(await preparePreviewMedia(url, kind), () => void endPreview());
+}
+
+/** Full-screen preview of a generated screensaver, installed or not. */
+export async function previewClassic(id: string): Promise<void> {
+  await previewFolder(await preparePreviewClassic(id), () => void endPreview());
+}
 
 /** Full-screen preview of any library video, with its current options. */
 export async function previewEntry(entry: InstalledEntry): Promise<void> {
