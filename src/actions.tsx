@@ -17,9 +17,9 @@ import {
   setOptions,
   useBackendState,
 } from './backend';
-import { CLASSICS, classicFolder, classicName } from './classics';
+import { CLASSICS, classicFolder, classicName, classicPrefix } from './classics';
 import { getClientSettings, useClientSettings } from './clientSettings';
-import { t, useLanguage } from './i18n';
+import { getLocale, t, useLanguage } from './i18n';
 import {
   BOUNCING_LOGO_ID,
   SLIDESHOW_ID,
@@ -30,7 +30,7 @@ import {
   previewScreensaver,
   setActiveScreensaver,
 } from './steam';
-import { Fit, InstalledEntry, MOVIE_SLOTS, MovieSlot, SLOT_TYPE } from './types';
+import { ClassicOptions, Fit, InstalledEntry, MOVIE_SLOTS, MovieSlot, SLOT_TYPE } from './types';
 
 const FITS: Fit[] = ['cover', 'contain', 'none'];
 
@@ -120,7 +120,7 @@ export function useScreensaverChoices() {
       : []),
     ...CLASSICS.filter((c) => state.classics.includes(c.id)).map((c) => ({
       data: FOLDER_PREFIX + classicFolder(c.id),
-      label: `${t('prefix.classic')} · ${classicName(c)}`,
+      label: `${classicPrefix(c)} · ${classicName(c)}`,
     })),
     ...state.installed
       .filter((e) => e.screensaver)
@@ -240,7 +240,7 @@ export const OptionsModal: FC<{ id: string; closeModal?: () => void }> = ({ id, 
         <DropdownItem
           label={t('fit.label')}
           rgOptions={FITS.map((f) => ({ data: f, label: t(`fit.${f}`) }))}
-          selectedOption={entry.fit ?? 'contain'}
+          selectedOption={entry.fit ?? state.defaultFit}
           disabled={busy}
           onChange={(o) => void run(() => setOptions(entry.id, { fit: o.data as Fit }))}
         />
@@ -267,8 +267,72 @@ export const ClassicOptionsModal: FC<{ id: string; closeModal?: () => void }> = 
         disabled={busy}
         onChange={(v) => void run(() => setClassicOptions(id, { shuffleInclude: v }))}
       />
-      {id === 'rain' && <RainColor id={id} />}
+      {id === 'rain' && <ColorChoice id={id} field="color" fallback={RAIN_COLORS[0][1]} label={t('classicOpts.color')} />}
+      {classic.colors && (
+        <>
+          <ColorChoice id={id} field="color" fallback={classic.colors[0]} label={t('clockOpts.color')} />
+          <ColorChoice id={id} field="color2" fallback={classic.colors[1]} label={t('clockOpts.color2')} />
+        </>
+      )}
+      {classic.clock && <ClockOptions id={id} />}
     </ModalRoot>
+  );
+};
+
+const CLOCK_FONTS = ['thin', 'sans', 'serif', 'mono'] as const;
+const CLOCK_SIZES = ['s', 'm', 'l', 'xl'] as const;
+
+/** Look of an OLED clock: font, size, 12/24 h, seconds, date, brightness. */
+const ClockOptions: FC<{ id: string }> = ({ id }) => {
+  const state = useBackendState();
+  const [busy, run] = useBusy();
+  const o = state.classicOptions[id] ?? {};
+  const [dim, setDim] = useState(o.dim ?? 70);
+  const timer = useRef<number>();
+  const set = (patch: ClassicOptions) => void run(() => setClassicOptions(id, { ...patch, locale: getLocale() }));
+  return (
+    <>
+      <DropdownItem
+        label={t('clockOpts.font')}
+        rgOptions={CLOCK_FONTS.map((f) => ({ data: f, label: t(`clockOpts.font.${f}`) }))}
+        selectedOption={o.font ?? 'thin'}
+        disabled={busy}
+        onChange={(v) => set({ font: v.data })}
+      />
+      <DropdownItem
+        label={t('clockOpts.size')}
+        rgOptions={CLOCK_SIZES.map((s) => ({ data: s, label: t(`clockOpts.size.${s}`) }))}
+        selectedOption={o.size ?? 'l'}
+        disabled={busy}
+        onChange={(v) => set({ size: v.data })}
+      />
+      <DropdownItem
+        label={t('clockOpts.hours')}
+        rgOptions={[
+          { data: '24', label: '24 h' },
+          { data: '12', label: '12 h (AM/PM)' },
+        ]}
+        selectedOption={o.hours ?? '24'}
+        disabled={busy}
+        onChange={(v) => set({ hours: v.data })}
+      />
+      <ToggleField label={t('clockOpts.seconds')} checked={o.seconds === true} disabled={busy} onChange={(v) => set({ seconds: v })} />
+      <ToggleField label={t('clockOpts.date')} checked={o.date !== false} disabled={busy} onChange={(v) => set({ date: v })} />
+      <SliderField
+        label={t('clockOpts.dim')}
+        description={t('clockOpts.dimDesc')}
+        value={dim}
+        min={20}
+        max={100}
+        step={5}
+        showValue
+        onChange={(v) => {
+          setDim(v);
+          window.clearTimeout(timer.current);
+          timer.current = window.setTimeout(() => set({ dim: v }), 400);
+        }}
+      />
+    </>
   );
 };
 
@@ -310,23 +374,32 @@ function hexToHue(hex: string): number {
   return Math.round((h * 60 + 360) % 360);
 }
 
-const RainColor: FC<{ id: string }> = ({ id }) => {
+/** A colour option of a classic/clock: preset colours or a custom hue. */
+const ColorChoice: FC<{ id: string; field: 'color' | 'color2'; fallback: string; label: string }> = ({
+  id,
+  field,
+  fallback,
+  label,
+}) => {
   const state = useBackendState();
   const [busy, run] = useBusy();
-  const color = state.classicOptions[id]?.color || RAIN_COLORS[0][1];
-  const preset = RAIN_COLORS.find(([, hex]) => hex === color);
+  const color = state.classicOptions[id]?.[field] || fallback;
+  const presets: (readonly [string, string])[] = RAIN_COLORS.some(([, hex]) => hex === fallback)
+    ? [...RAIN_COLORS]
+    : [['default', fallback], ...RAIN_COLORS];
+  const preset = presets.find(([, hex]) => hex === color);
   const [custom, setCustom] = useState(!preset);
   const [hue, setHue] = useState(hexToHue(color));
   const timer = useRef<number>();
 
   const options = [
-    ...RAIN_COLORS.map(([key, hex]) => ({ data: hex as string, label: t(`color.${key}`) })),
+    ...presets.map(([key, hex]) => ({ data: hex as string, label: t(`color.${key}` as any) })),
     { data: CUSTOM_COLOR, label: t('color.custom') },
   ];
   return (
     <>
       <DropdownItem
-        label={t('classicOpts.color')}
+        label={label}
         rgOptions={options}
         selectedOption={custom ? CUSTOM_COLOR : color}
         disabled={busy}
@@ -336,7 +409,7 @@ const RainColor: FC<{ id: string }> = ({ id }) => {
             return;
           }
           setCustom(false);
-          void run(() => setClassicOptions(id, { color: o.data as string }));
+          void run(() => setClassicOptions(id, { [field]: o.data as string }));
         }}
       />
       {custom && (
@@ -351,7 +424,7 @@ const RainColor: FC<{ id: string }> = ({ id }) => {
           onChange={(v) => {
             setHue(v);
             window.clearTimeout(timer.current);
-            timer.current = window.setTimeout(() => void run(() => setClassicOptions(id, { color: hueToHex(v) })), 400);
+            timer.current = window.setTimeout(() => void run(() => setClassicOptions(id, { [field]: hueToHex(v) })), 400);
           }}
         />
       )}
@@ -380,7 +453,7 @@ export const ImportModal: FC<{ closeModal?: () => void }> = ({ closeModal }) => 
         path = (
           await openFilePicker(
             FileSelectionType.FILE,
-            state.customDir || '/home/deck',
+            state.customDir || '/home',
             true, // includeFiles
             true, // includeFolders
             undefined,

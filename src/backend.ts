@@ -6,6 +6,8 @@ import { useEffect, useReducer } from 'react';
 
 import {
   BackendState,
+  ClassicOptions,
+  DeviceSetting,
   GifResult,
   InstalledEntry,
   MovieSettings,
@@ -21,9 +23,15 @@ type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
 let state: BackendState = {
   installed: [],
   shuffle: { enabled: false, boomerang: false, playsPerVideo: 2, classicSeconds: 60, order: 'random', sequence: [] },
-  playback: { limit: false, plays: 3, after: 'black' },
+  playback: { limit: false, plays: 3, after: 'black', pageMinutes: 0 },
   classics: [],
   classicOptions: {},
+  device: {
+    setting: 'auto',
+    kind: 'handheld',
+    detected: { kind: 'handheld', battery: true, internalPanel: true, backlight: true, vendor: '', product: '', oled: false },
+  },
+  defaultFit: 'contain',
   hasGiphyKey: false,
   movies: { boot: '', suspend: '', throbber: '', shuffleOnBoot: false, randomizeEveryMin: 0, lastShuffle: 0 },
   animationChangerFound: false,
@@ -150,8 +158,8 @@ export async function importAnimationChanger(): Promise<ImportSummary> {
   return res;
 }
 export const installClassic = (id: string) => mutate('install_classic', id);
-export const setClassicOptions = (id: string, patch: { shuffleInclude?: boolean; color?: string }) =>
-  mutate('set_classic_options', id, patch);
+export const setClassicOptions = (id: string, patch: ClassicOptions) => mutate('set_classic_options', id, patch);
+export const setDevice = (choice: DeviceSetting) => mutate('set_device', choice);
 /** Batch rotation changes; classic ids are passed as "classic:<id>". */
 export const setMany = (ids: string[], patch: { shuffleInclude?: boolean; shuffleExclude?: boolean }) =>
   mutate('set_many', ids, patch);

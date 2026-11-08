@@ -58,7 +58,16 @@ import {
   useBackendState,
 } from './backend';
 import { AnimationChangerBanner } from './animationChanger';
-import { CLASSICS, Classic, classicDescription, classicFolder, classicName } from './classics';
+import {
+  ANIMATIONS,
+  CLASSICS,
+  CLOCKS,
+  Classic,
+  OLED_ART,
+  classicDescription,
+  classicFolder,
+  classicName,
+} from './classics';
 import { CSS, PostCard, PostModal } from './components';
 import { t, useLanguage } from './i18n';
 import { FinishSection, SettingsPanel, ShuffleSection } from './SettingsPanel';
@@ -66,7 +75,7 @@ import { GifResult, InstalledEntry, MOVIE_SLOTS, MovieSlot, PostLike, RepoPost }
 
 export const MANAGER_ROUTE = '/deck-animations';
 
-type TabId = 'explore' | 'library' | 'rotation' | 'settings';
+type TabId = 'explore' | 'oled' | 'library' | 'rotation' | 'settings';
 type ExploreView = 'boot' | 'suspend' | 'classics' | 'gifs';
 const EXPLORE_VIEWS: ExploreView[] = ['boot', 'suspend', 'classics', 'gifs'];
 
@@ -240,6 +249,16 @@ const ClassicCard: FC<{ classic: Classic; installed: boolean }> = ({ classic, in
               <DialogButton disabled={busy} onClick={() => void run(() => useFolder(folder, classicName(classic)))}>
                 {t('common.use')}
               </DialogButton>
+              {classic.oled && (
+                <>
+                  <DialogButton disabled={busy} onClick={() => void run(() => previewFolder(folder))}>
+                    {t('common.preview')}
+                  </DialogButton>
+                  <DialogButton disabled={busy} onClick={() => showModal(<ClassicOptionsModal id={classic.id} />)}>
+                    {t('common.options')}
+                  </DialogButton>
+                </>
+              )}
               <DialogButton
                 className="dss-danger"
                 disabled={busy}
@@ -263,10 +282,35 @@ const ClassicsTab: FC = () => {
         <Hint>{t('classics.hint')}</Hint>
       </Toolbar>
       <Focusable className="dss-grid">
-        {CLASSICS.map((c) => (
+        {ANIMATIONS.map((c) => (
           <ClassicCard key={c.id} classic={c} installed={state.classics.includes(c.id)} />
         ))}
       </Focusable>
+    </div>
+  );
+};
+
+/** OLED tab: clocks and generative art on pure black, always moving. */
+const OledTab: FC = () => {
+  const state = useBackendState();
+  const section = (title: string, hint: string, items: Classic[]) => (
+    <>
+      <h3 style={{ margin: '14px 0 4px' }}>{title}</h3>
+      <Hint>{hint}</Hint>
+      <Focusable className="dss-grid">
+        {items.map((c) => (
+          <ClassicCard key={c.id} classic={c} installed={state.classics.includes(c.id)} />
+        ))}
+      </Focusable>
+    </>
+  );
+  return (
+    <div>
+      <Toolbar>
+        <Hint>{t('oled.hint')}</Hint>
+      </Toolbar>
+      {section(t('oled.clocks'), t('oled.clocksHint'), CLOCKS)}
+      {section(t('oled.art'), t('oled.artHint'), OLED_ART)}
     </div>
   );
 };
@@ -519,7 +563,7 @@ function searchText(i: LibItem): string {
   const parts =
     i.kind === 'entry'
       ? [i.entry.title, i.entry.author, TYPE_WORDS[i.entry.type], t(`type.${i.entry.type}`), ...(i.entry.tags ?? [])]
-      : [classicName(i.classic), i.classic.id, TYPE_WORDS.classic, t('type.classic')];
+      : [classicName(i.classic), i.classic.id, TYPE_WORDS.classic, t('type.classic'), i.classic.oled ? 'oled' : ''];
   if (itemIsScreensaver(i)) parts.push(SCREENSAVER_WORDS, t('lib.badgeSs'));
   return parts.join(' ').toLowerCase();
 }
@@ -1038,7 +1082,7 @@ const ScreensaverPoolView: FC = () => {
       const folder = classicFolder(c.id);
       return {
         key: `classic:${c.id}`,
-        title: `${classicName(c)} · ${t('type.classic')}`,
+        title: `${classicName(c)} · ${t(c.oled ? 'type.oled' : 'type.classic')}`,
         art: c.art,
         included: !!state.classicOptions[c.id]?.shuffleInclude,
         inUse: activeFolder === folder ? [activeLabel] : [],
@@ -1221,6 +1265,7 @@ export const ManagerPage: FC = () => {
               </Padded>
             ),
           },
+          { id: 'oled', title: t('tab.oled'), content: <Padded><OledTab /></Padded> },
           { id: 'library', title: t('tab.library', { n: libraryCount }), content: <Padded><LibraryTab /></Padded> },
           {
             id: 'rotation',

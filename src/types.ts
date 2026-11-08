@@ -66,6 +66,41 @@ export interface PlaybackSettings {
   plays: number;
   /** After the last play: fade to black, or also switch the backlight off. */
   after: 'black' | 'off';
+  /** Endless screensavers (classics, clocks) end after this many minutes (0 = never). */
+  pageMinutes: number;
+}
+
+export type DeviceKind = 'handheld' | 'tv';
+export type DeviceSetting = 'auto' | DeviceKind;
+
+export interface DeviceInfo {
+  setting: DeviceSetting;
+  /** What's in effect: the setting, or what was detected for "auto". */
+  kind: DeviceKind;
+  detected: {
+    kind: DeviceKind;
+    battery: boolean;
+    internalPanel: boolean;
+    backlight: boolean;
+    vendor: string;
+    product: string;
+    oled: boolean;
+  };
+}
+
+/** Per classic/clock options (clock ones only matter for clocks). */
+export interface ClassicOptions {
+  shuffleInclude?: boolean;
+  color?: string;
+  color2?: string;
+  font?: 'sans' | 'thin' | 'serif' | 'mono';
+  size?: 's' | 'm' | 'l' | 'xl';
+  hours?: '24' | '12';
+  seconds?: boolean;
+  date?: boolean;
+  /** Brightness in percent (20-100). */
+  dim?: number;
+  locale?: string;
 }
 
 export type Fit = 'contain' | 'cover' | 'none';
@@ -96,7 +131,10 @@ export interface BackendState {
   /** Installed generated screensavers (ids from CLASSICS). */
   classics: string[];
   /** Per installed classic; classics join Shuffle only when shuffleInclude is set. */
-  classicOptions: Record<string, { shuffleInclude?: boolean; color?: string }>;
+  classicOptions: Record<string, ClassicOptions>;
+  device: DeviceInfo;
+  /** Fit used by videos without their own (cover on a TV, contain on a handheld). */
+  defaultFit: Fit;
   hasGiphyKey: boolean;
   movies: MovieSettings;
   /** Animation Changer's settings exist on this Deck (installed or not). */

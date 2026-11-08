@@ -17,6 +17,7 @@
 //   off, so the power button wakes it instead of suspending; idle suspend
 //   still goes through.
 
+import { classicFolder } from './classics';
 import { getClientSettings } from './clientSettings';
 import { getState, setDisplayPower } from './backend';
 import {
@@ -68,6 +69,7 @@ function menuStore(): any {
 }
 
 const PER_ITEM_MS = 600; // start-up latency of each shuffle item
+const PAGE_FADE_MS = 3500; // common.js fade to black
 
 const playMs = (seconds: number, boomerang: boolean) => seconds * (boomerang ? 2 : 1) * 1000;
 
@@ -75,8 +77,14 @@ const playMs = (seconds: number, boomerang: boolean) => seconds * (boomerang ? 2
  *  one full pass of the Shuffle list (random order, but the total is fixed). */
 function plannedEndMs(): number | null {
   const { playback, installed, shuffle, shuffleFolder, classics, classicOptions } = getState();
-  if (!playback.limit) return null;
   const folder = folderFromId(currentId);
+
+  // classics and clocks never end by themselves; the page fades to black
+  // after pageMinutes (see common.js), and the display can follow
+  const classic = classics.find((c) => classicFolder(c) === folder);
+  if (classic) return playback.pageMinutes ? playback.pageMinutes * 60000 + PAGE_FADE_MS : null;
+
+  if (!playback.limit) return null;
 
   if (folder === shuffleFolder) {
     const videos = installed.filter((e) => e.screensaver && e.shuffleInclude !== false);
@@ -106,11 +114,17 @@ function onFinished(): void {
   if (getState().playback.after === 'off') void setDisplay(false);
 }
 
+/** Smallest enabled value (0 = none); a TV box only uses the plugged-in ones,
+ *  since leftover battery values (e.g. copied from a Deck) never apply there. */
+function minEnabled(battery: number | undefined, ac: number | undefined): number {
+  const values = (getState().device.kind === 'tv' ? [ac ?? 0] : [battery ?? 0, ac ?? 0]).filter((v) => v > 0);
+  return values.length ? Math.min(...values) : 0;
+}
+
 /** Seconds of idle before Steam suspends by itself (0 = never). */
 function idleSuspendSec(): number {
   const s = getClientSettings();
-  const values = [s?.idleSuspendBatterySec ?? 0, s?.idleSuspendAcSec ?? 0].filter((v) => v > 0);
-  return values.length ? Math.min(...values) : 0;
+  return minEnabled(s?.idleSuspendBatterySec, s?.idleSuspendAcSec);
 }
 
 /** Power button while the screensaver looks like a dark screen: wake it up. */
@@ -119,7 +133,7 @@ function onSuspendRequest(): boolean {
   const s = getClientSettings();
   const suspendSec = idleSuspendSec();
   if (suspendSec) {
-    const ssSec = Math.min(...[s?.idleScreensaverBatterySec ?? 0, s?.idleScreensaverAcSec ?? 0].filter((v) => v > 0), suspendSec);
+    const ssSec = Math.min(minEnabled(s?.idleScreensaverBatterySec, s?.idleScreensaverAcSec) || suspendSec, suspendSec);
     // the screensaver started ssSec into the idle time; Steam's own timer is due now
     if (Date.now() - activatedAt >= (suspendSec - ssSec) * 1000 - IDLE_SUSPEND_SLACK_MS) return false;
   }
@@ -130,13 +144,17 @@ function onSuspendRequest(): boolean {
 }
 
 async function setDisplay(on: boolean): Promise<void> {
+  const viaGamescope = await setPanelPower(on).catch(() => false);
+  // gamescope did it: the state is settled even if the backlight cleanup below
+  // fails (a TV or monitor has no backlight at all), so the 5 s poll doesn't
+  // keep switching the display on forever
+  if (viaGamescope) displayOff = !on;
   try {
-    const viaGamescope = await setPanelPower(on).catch(() => false);
     // on "on" also undo a backlight change (fallback, or an older version)
     if (!viaGamescope || on) await setDisplayPower(on);
     displayOff = !on;
   } catch (err) {
-    console.warn('[decky-screensavers] display power change failed', err);
+    if (!viaGamescope) console.warn('[deck-animations] display power change failed', err);
   }
 }
 

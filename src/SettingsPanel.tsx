@@ -2,7 +2,8 @@ import { toaster } from '@decky/api';
 import { ButtonItem, DropdownItem, PanelSection, PanelSectionRow, SliderField, ToggleField } from '@decky/ui';
 import { FC, useEffect, useRef, useState } from 'react';
 
-import { StorageInfo, clearCache, getStorage, setPlayback, setShuffle, useBackendState } from './backend';
+import { StorageInfo, clearCache, getStorage, setDevice, setPlayback, setShuffle, useBackendState } from './backend';
+import { DeviceSetting } from './types';
 import { AnimationChangerSection } from './animationChanger';
 import { getClientSettings, useClientSettings } from './clientSettings';
 import { LANGUAGE_NAMES, LangSetting, getLangSetting, setLangSetting, t, useLanguage } from './i18n';
@@ -118,6 +119,34 @@ function useDebouncedValue(value: number, commit: (v: number) => void): [number,
 
 const PREVIOUS_KEY = 'decky-screensavers:beforeShuffle';
 
+/** "End endless screensavers after" choices, in minutes (0 = never). */
+const PAGE_MINUTES = [0, 5, 10, 15, 30, 60, 120];
+
+/** Handheld or TV: which power settings make sense and which defaults apply. */
+const DeviceSection: FC = () => {
+  const state = useBackendState();
+  const { setting, detected } = state.device;
+  const detectedLabel = t(detected.kind === 'tv' ? 'device.tv' : 'device.handheld');
+  const hardware = [detected.vendor, detected.product].filter(Boolean).join(' ');
+  return (
+    <PanelSection title={t('device.title')}>
+      <PanelSectionRow>
+        <DropdownItem
+          label={t('device.label')}
+          description={t('device.desc', { detected: detectedLabel, hardware: hardware || '?' })}
+          rgOptions={[
+            { data: 'auto', label: t('device.auto', { detected: detectedLabel }) },
+            { data: 'handheld', label: t('device.handheld') },
+            { data: 'tv', label: t('device.tv') },
+          ]}
+          selectedOption={setting}
+          onChange={(o) => void guard(setDevice(o.data as DeviceSetting))}
+        />
+      </PanelSectionRow>
+    </PanelSection>
+  );
+};
+
 /** Turn screensaver rotation on (Shuffle becomes the active screensaver) or off
  *  (back to whatever was active before). */
 export async function setRotation(on: boolean, shuffleFolder: string): Promise<void> {
@@ -152,6 +181,7 @@ export const FinishSection: FC = () => {
   useLanguage();
   const state = useBackendState();
   const [plays, setPlays] = useDebouncedValue(state.playback.plays, (v) => void guard(setPlayback({ plays: v })));
+  const tv = state.device.kind === 'tv';
   return (
       <PanelSection title={t('settings.playCount')}>
         <PanelSectionRow>
@@ -163,31 +193,40 @@ export const FinishSection: FC = () => {
           />
         </PanelSectionRow>
         {state.playback.limit && (
-          <>
-            <PanelSectionRow>
-              <SliderField
-                label={t('settings.plays')}
-                description={t('settings.playsDesc')}
-                value={plays}
-                min={1}
-                max={20}
-                step={1}
-                showValue
-                onChange={setPlays}
-              />
-            </PanelSectionRow>
-            <PanelSectionRow>
-              <DropdownItem
-                label={t('settings.then')}
-                rgOptions={[
-                  { data: 'black', label: t('settings.black') },
-                  { data: 'off', label: t('settings.off') },
-                ]}
-                selectedOption={state.playback.after}
-                onChange={(o) => void guard(setPlayback({ after: o.data }))}
-              />
-            </PanelSectionRow>
-          </>
+          <PanelSectionRow>
+            <SliderField
+              label={t('settings.plays')}
+              description={t('settings.playsDesc')}
+              value={plays}
+              min={1}
+              max={20}
+              step={1}
+              showValue
+              onChange={setPlays}
+            />
+          </PanelSectionRow>
+        )}
+        <PanelSectionRow>
+          <DropdownItem
+            label={t('settings.pageMinutes')}
+            description={t('settings.pageMinutesDesc')}
+            rgOptions={PAGE_MINUTES.map((m) => ({ data: m, label: m ? `${m} min` : t('settings.never') }))}
+            selectedOption={state.playback.pageMinutes}
+            onChange={(o) => void guard(setPlayback({ pageMinutes: o.data as number }))}
+          />
+        </PanelSectionRow>
+        {(state.playback.limit || state.playback.pageMinutes > 0) && (
+          <PanelSectionRow>
+            <DropdownItem
+              label={t('settings.then')}
+              rgOptions={[
+                { data: 'black', label: t('settings.black') },
+                { data: 'off', label: t(tv ? 'settings.offTv' : 'settings.off') },
+              ]}
+              selectedOption={state.playback.after}
+              onChange={(o) => void guard(setPlayback({ after: o.data }))}
+            />
+          </PanelSectionRow>
         )}
       </PanelSection>
   );
@@ -270,29 +309,35 @@ export const SettingsPanel: FC = () => {
   const state = useBackendState();
   const settings = useClientSettings();
   const [lang, setLang] = useState<LangSetting>(getLangSetting);
+  const tv = state.device.kind === 'tv';
 
   return (
     <>
+      <DeviceSection />
 
       {settings && (
         <PanelSection title={t('settings.power')}>
+          {!tv && (
+            <IdleDropdown
+              label={t('settings.ssBattery')}
+              field={SettingField.idleScreensaverBatterySec}
+              value={settings.idleScreensaverBatterySec}
+            />
+          )}
           <IdleDropdown
-            label={t('settings.ssBattery')}
-            field={SettingField.idleScreensaverBatterySec}
-            value={settings.idleScreensaverBatterySec}
-          />
-          <IdleDropdown
-            label={t('settings.ssAc')}
+            label={t(tv ? 'settings.ssTv' : 'settings.ssAc')}
             field={SettingField.idleScreensaverAcSec}
             value={settings.idleScreensaverAcSec}
           />
+          {!tv && (
+            <IdleDropdown
+              label={t('settings.sleepBattery')}
+              field={SettingField.idleSuspendBatterySec}
+              value={settings.idleSuspendBatterySec}
+            />
+          )}
           <IdleDropdown
-            label={t('settings.sleepBattery')}
-            field={SettingField.idleSuspendBatterySec}
-            value={settings.idleSuspendBatterySec}
-          />
-          <IdleDropdown
-            label={t('settings.sleepAc')}
+            label={t(tv ? 'settings.sleepTv' : 'settings.sleepAc')}
             field={SettingField.idleSuspendAcSec}
             value={settings.idleSuspendAcSec}
           />

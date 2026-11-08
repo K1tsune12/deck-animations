@@ -37,7 +37,23 @@ _PLUGIN_DIR = os.environ.get("DECKY_PLUGIN_DIR") or os.path.dirname(os.path.absp
 _PLAYER_DIR = os.path.join(_PLUGIN_DIR, "assets", "player")
 _PLAYER_FILES = ("index.html", "player.js", "main.css")
 _CLASSICS_DIR = os.path.join(_PLUGIN_DIR, "assets", "classics")
-CLASSICS = ("polygons", "starfield", "pipes", "rain", "bubbles", "curves")
+CLASSICS = (
+    "polygons", "starfield", "pipes", "rain", "bubbles", "curves",
+    # OLED clocks: black screens with a small, drifting clock
+    "clock-digital", "clock-analog", "clock-rings", "clock-aurora",
+    # OLED art: black backgrounds, light always on the move
+    "oled-fireflies", "oled-aurora", "oled-fireworks", "oled-lava", "oled-silk",
+)
+CLOCKS = tuple(c for c in CLASSICS if c.startswith("clock-"))
+# clock options: value -> allowed values (None = free-form, validated below)
+_CLOCK_ENUMS = {
+    "font": ("sans", "thin", "serif", "mono"),
+    "size": ("s", "m", "l", "xl"),
+    "hours": ("24", "12"),
+}
+_CLOCK_BOOLS = ("seconds", "date")
+_LOCALE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$")
+DEVICE_CHOICES = ("auto", "handheld", "tv")
 _CLASSIC_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -46,7 +62,7 @@ _CLASSIC_HTML = """<!DOCTYPE html>
     <link rel="stylesheet" href="common.css" />
     <script src="common.js"></script>
     <script src="config.js"></script>
-    <script src="main.js" defer></script>
+{extra}    <script src="main.js" defer></script>
 </head>
 <body></body>
 </html>
@@ -112,8 +128,11 @@ _state = {
         "sequence": [],
     },
     # plays: stop single-video screensavers after this many plays (0 = loop forever)
-    "playback": {"limit": False, "plays": 3, "after": "black"},
+    # pageMinutes: endless screensavers (classics, clocks) end after this long (0 = never)
+    "playback": {"limit": False, "plays": 3, "after": "black", "pageMinutes": 0},
     "classics": [],
+    # "auto" (detected), "handheld" or "tv": hides battery settings and picks TV defaults
+    "device": "auto",
     # per classic: {"shuffleInclude": bool}; classics join Shuffle only when asked
     "classicOptions": {},
     "giphyKey": "",
@@ -320,6 +339,70 @@ def _plays():
     return playback["plays"] if playback["limit"] else 0
 
 
+def _read_text(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+_detected = None
+
+
+def _detect_device():
+    """What this machine looks like: a handheld (battery or built-in panel) or a
+    box on a TV. Read once; the hardware doesn't change while Steam runs."""
+    global _detected
+    if _detected is not None:
+        return _detected
+    supplies = "/sys/class/power_supply"
+    battery = False
+    for name in os.listdir(supplies) if os.path.isdir(supplies) else []:
+        # controller batteries (ps-controller-battery-*, hid-*) don't count
+        if _read_text(os.path.join(supplies, name, "type")) == "Battery" and _read_text(
+            os.path.join(supplies, name, "scope")
+        ) != "Device":
+            battery = True
+    drm = "/sys/class/drm"
+    internal = any(
+        ("-eDP-" in name or "-DSI-" in name) and _read_text(os.path.join(drm, name, "status")) == "connected"
+        for name in (os.listdir(drm) if os.path.isdir(drm) else [])
+    )
+    backlight = bool(os.path.isdir(BACKLIGHT_DIR) and os.listdir(BACKLIGHT_DIR))
+    product = _read_text("/sys/class/dmi/id/product_name")
+    vendor = _read_text("/sys/class/dmi/id/sys_vendor") or _read_text("/sys/class/dmi/id/board_vendor")
+    _detected = {
+        "kind": "handheld" if battery or internal else "tv",
+        "battery": battery,
+        "internalPanel": internal,
+        "backlight": backlight,
+        "vendor": vendor,
+        "product": product,
+        # Steam Deck OLED's board is "Galileo" (LCD is "Jupiter")
+        "oled": product == "Galileo",
+    }
+    return _detected
+
+
+def _detected_fallback():
+    global _detected
+    _detected = {
+        "kind": "handheld", "battery": False, "internalPanel": False, "backlight": False,
+        "vendor": "", "product": "", "oled": False,
+    }
+
+
+def _device_kind():
+    choice = _state["device"]
+    return choice if choice in ("handheld", "tv") else _detect_device()["kind"]
+
+
+def _default_fit():
+    """Repo videos are 16:10; on a 16:9 TV, filling the screen looks better than bars."""
+    return "cover" if _device_kind() == "tv" else "contain"
+
+
 def _sync_entry(video_id):
     """Create or remove a library video's screensaver folder to match its flag."""
     entry = _state["installed"][video_id]
@@ -335,7 +418,7 @@ def _write_single(video_id):
     config = {
         "mode": "single",
         "videos": [name],
-        "fits": [entry.get("fit", "contain")],
+        "fits": [entry.get("fit") or _default_fit()],
         "boomerang": entry["boomerang"],
         "plays": _plays(),
     }
@@ -351,8 +434,13 @@ def _set_backlight(on):
     over the panel's own interface), so the brightness itself goes to 0 and
     is restored afterwards; the saved value lives in the flag file so it
     survives a plugin restart."""
-    names = os.listdir(BACKLIGHT_DIR)
+    names = os.listdir(BACKLIGHT_DIR) if os.path.isdir(BACKLIGHT_DIR) else []
     if not names:
+        # an external display (TV, monitor) has no backlight: nothing to undo
+        if on:
+            if os.path.exists(_DISPLAY_OFF_FLAG):
+                os.remove(_DISPLAY_OFF_FLAG)
+            return
         raise RuntimeError("no backlight device found")
 
     def path(name, key):
@@ -418,7 +506,7 @@ def _sync_shuffle():
             "key": vid,
             "kind": "video",
             "src": f"videos/{_video_file(vid)}",
-            "fit": _state["installed"][vid].get("fit", "contain"),
+            "fit": _state["installed"][vid].get("fit") or _default_fit(),
             "boomerang": bool(_state["installed"][vid].get("boomerang")),
         }
         for vid in ids
@@ -449,7 +537,7 @@ def _sync_shuffle():
         _link_or_copy(os.path.join(VIDEOS_DIR, name), os.path.join(path, "videos", name))
     # classics run in a same-origin iframe, so they get their own copy here
     for c in classics:
-        _write_classic_files(os.path.join(path, "classics", c), c)
+        _write_classic_files(os.path.join(path, "classics", c), c, standalone=False)
     _own_tree(path)
 
 
@@ -457,15 +545,25 @@ def _classic_folder(classic_id):
     return f"classic-{classic_id}"
 
 
-def _write_classic_files(path, classic_id):
-    """The page of a generated screensaver from assets/classics, into path."""
+def _write_classic_files(path, classic_id, standalone=True):
+    """The page of a generated screensaver from assets/classics, into path.
+    standalone: its own Steam screensaver (not an item of the rotation, which
+    times its items itself), so it honours the "end after N minutes" setting."""
     os.makedirs(path, exist_ok=True)
-    for name in ("common.css", "common.js"):
+    shared = ["common.css", "common.js"]
+    clock = classic_id in CLOCKS
+    if clock:
+        shared.append("clock.js")
+    for name in shared:
         shutil.copyfile(os.path.join(_CLASSICS_DIR, name), os.path.join(path, name))
     shutil.copyfile(os.path.join(_CLASSICS_DIR, classic_id, "main.js"), os.path.join(path, "main.js"))
+    extra = '    <script src="clock.js"></script>\n' if clock else ""
     with open(os.path.join(path, "index.html"), "w", encoding="utf-8") as f:
-        f.write(_cache_bust(_CLASSIC_HTML))
+        f.write(_cache_bust(_CLASSIC_HTML.replace("{extra}", extra)))
     options = {k: v for k, v in _state["classicOptions"].get(classic_id, {}).items() if k != "shuffleInclude"}
+    minutes = _state["playback"].get("pageMinutes", 0)
+    if standalone and minutes:
+        options["endAfterSec"] = minutes * 60
     with open(os.path.join(path, "config.js"), "w", encoding="utf-8") as f:
         f.write(f"window.CLASSIC_CONFIG = {json.dumps(options)};\n")
 
@@ -511,7 +609,6 @@ def _add_local_entry(video_id, name, title, kind, extra=None):
         "url": "",
         "file": name,
         "boomerang": False,
-        "fit": "contain",
         "screensaver": False,
         "shuffleExclude": False,
         **(extra or {}),
@@ -739,6 +836,8 @@ def _public_state():
         "animationChangerFound": _find_animation_changer() is not None,
         "importedAnimationChanger": _state["importedAnimationChanger"],
         "shuffleFolder": SHUFFLE_FOLDER,
+        "device": {"setting": _state["device"], "kind": _device_kind(), "detected": _detect_device()},
+        "defaultFit": _default_fit(),
         "screensaversDir": SCREENSAVERS_DIR,
         "customDir": CUSTOM_DIR,
     }
@@ -777,6 +876,13 @@ class Plugin:
         _state["giphyKey"] = loaded.get("giphyKey", "")
         _state["movies"].update(loaded.get("movies", {}))
         _state["importedAnimationChanger"] = loaded.get("importedAnimationChanger", False)
+        if loaded.get("device") in DEVICE_CHOICES:
+            _state["device"] = loaded["device"]
+        try:
+            decky.logger.info(f"device: {_detect_device()} (setting: {_state['device']})")
+        except Exception:  # pylint: disable=broad-except
+            decky.logger.exception("device detection failed")
+            _detected_fallback()
         _state["lastBootId"] = loaded.get("lastBootId", "")
         _repo = _load_json(REPO_CACHE, _repo)
 
@@ -900,7 +1006,7 @@ class Plugin:
             if not entry:
                 entry = {k: post.get(k, "") for k in ("id", "title", "author", "thumbnail", "video", "duration", "type", "url")}
                 entry["folder"] = _folder_name(entry["title"] or video_id, video_id)
-                entry.update(boomerang=False, fit="contain", screensaver=False, shuffleExclude=False)
+                entry.update(boomerang=False, screensaver=False, shuffleExclude=False)
                 _state["installed"][video_id] = entry
             entry["videoDuration"] = _video_duration(dest)
             _sync_entry(video_id)
@@ -1085,7 +1191,7 @@ class Plugin:
             _remove_folder(PREVIEW_FOLDER)
             path = _write_player(
                 PREVIEW_FOLDER,
-                {"mode": "single", "videos": [name], "fits": [entry.get("fit", "contain")], "boomerang": entry["boomerang"], "plays": 0},
+                {"mode": "single", "videos": [name], "fits": [entry.get("fit") or _default_fit()], "boomerang": entry["boomerang"], "plays": 0},
             )
             _link_or_copy(_video_path(video_id), os.path.join(path, name))
             _own_tree(path)
@@ -1262,13 +1368,36 @@ class Plugin:
             options = _state["classicOptions"].setdefault(classic_id, {})
             if "shuffleInclude" in patch:
                 options["shuffleInclude"] = bool(patch["shuffleInclude"])
-            if "color" in patch:
-                color = str(patch["color"] or "")
-                if color and not _COLOR_RE.match(color):
-                    return {"ok": False, "error": "invalid color"}
-                options["color"] = color
-                if classic_id in _state["classics"]:
-                    _write_classic(classic_id)
+            look = False
+            for key in ("color", "color2"):
+                if key in patch:
+                    color = str(patch[key] or "")
+                    if color and not _COLOR_RE.match(color):
+                        return {"ok": False, "error": "invalid color"}
+                    options[key] = color
+                    look = True
+            if classic_id in CLOCKS:
+                for key, allowed in _CLOCK_ENUMS.items():
+                    if key in patch:
+                        if patch[key] not in allowed:
+                            return {"ok": False, "error": f"invalid {key}"}
+                        options[key] = patch[key]
+                        look = True
+                for key in _CLOCK_BOOLS:
+                    if key in patch:
+                        options[key] = bool(patch[key])
+                        look = True
+                if "dim" in patch:
+                    options["dim"] = max(20, min(100, int(patch["dim"])))
+                    look = True
+                if "locale" in patch:
+                    locale = str(patch["locale"] or "")
+                    if locale and not _LOCALE_RE.match(locale):
+                        return {"ok": False, "error": "invalid locale"}
+                    options["locale"] = locale
+                    look = True
+            if look and classic_id in _state["classics"]:
+                _write_classic(classic_id)
             _sync_shuffle()
             _save_state()
             return {"ok": True, "state": _public_state()}
@@ -1409,6 +1538,10 @@ class Plugin:
                 playback["plays"] = max(1, min(100, int(patch["plays"])))
             if patch.get("after") in ("black", "off"):
                 playback["after"] = patch["after"]
+            if "pageMinutes" in patch:
+                playback["pageMinutes"] = max(0, min(240, int(patch["pageMinutes"])))
+                for classic_id in _state["classics"]:
+                    _write_classic(classic_id)
             for video_id in _state["installed"]:
                 _sync_entry(video_id)
             _sync_shuffle()
@@ -1427,7 +1560,7 @@ class Plugin:
             except OSError as err:
                 return f"<{err.strerror}>"
 
-        info = {"backlight": {}, "drm": {}}
+        info = {"backlight": {}, "drm": {}, "device": _detect_device(), "setting": _state["device"]}
         for name in sorted(os.listdir(BACKLIGHT_DIR)) if os.path.isdir(BACKLIGHT_DIR) else []:
             base = os.path.join(BACKLIGHT_DIR, name)
             info["backlight"][name] = {
@@ -1436,7 +1569,7 @@ class Plugin:
             }
         drm = "/sys/class/drm"
         for name in sorted(os.listdir(drm)) if os.path.isdir(drm) else []:
-            if "eDP" in name or "DSI" in name:
+            if any(kind in name for kind in ("eDP", "DSI", "-DP-", "HDMI")):
                 info["drm"][name] = {k: read(os.path.join(drm, name, k)) for k in ("status", "enabled", "dpms")}
         return info
 
@@ -1448,6 +1581,22 @@ class Plugin:
             return {"ok": True}
         except Exception as err:  # pylint: disable=broad-except
             decky.logger.exception("set_display_power failed")
+            return {"ok": False, "error": str(err)}
+
+    async def set_device(self, choice: str):
+        """'auto', 'handheld' or 'tv': which settings and defaults to use."""
+        try:
+            if choice not in DEVICE_CHOICES:
+                return {"ok": False, "error": "invalid device"}
+            _state["device"] = choice
+            # video defaults (fit) depend on it
+            for video_id in _state["installed"]:
+                _sync_entry(video_id)
+            _sync_shuffle()
+            _save_state()
+            return {"ok": True, "state": _public_state()}
+        except Exception as err:  # pylint: disable=broad-except
+            decky.logger.exception("set_device failed")
             return {"ok": False, "error": str(err)}
 
     async def set_shuffle(self, patch: dict):
