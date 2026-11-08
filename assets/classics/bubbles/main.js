@@ -7,9 +7,9 @@ const bubbles = [];
 
 for ( let i = 0; i < COUNT; i++ )
 {
-    const r = Rand( 40, 110 );
+    const r = Rand( 40, 110 ) * Scale();
     const angle = Rand( 0, Math.PI * 2 );
-    const speed = Rand( 40, 110 );
+    const speed = Rand( 40, 110 ) * Scale();
     bubbles.push( {
         x: Rand( r, view.width - r ), y: Rand( r, view.height - r ), r,
         vx: Math.cos( angle ) * speed, vy: Math.sin( angle ) * speed,

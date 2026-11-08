@@ -4,7 +4,7 @@
 const VERTICES = 4;
 const ECHOES = 14;
 const ECHO_SPACING = 0.035; // seconds between echoes
-const SPEED = 220; // px/s
+const SPEED = 220 * Scale(); // px/s on a full screen
 
 const view = CreateCanvas();
 

@@ -4,7 +4,7 @@
 const CURVES = 3;
 const ECHOES = 18;
 const ECHO_SPACING = 0.03;
-const SPEED = 180;
+const SPEED = 180 * Scale();
 
 const view = CreateCanvas();
 

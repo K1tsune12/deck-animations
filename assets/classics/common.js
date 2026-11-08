@@ -86,6 +86,13 @@ function Palette( def1, def2 )
     return [ Hex( cfg.color || def1 ), Hex( cfg.color2 || def2 ) ];
 }
 
+/** 1 on a full screen (Deck 800p, TV 1080p, as designed); smaller in a small
+ *  page such as a thumbnail, so pixel sizes and speeds keep their proportions. */
+function Scale()
+{
+    return Math.min( 1, Math.min( window.innerWidth, window.innerHeight ) / 800 );
+}
+
 function Rand( min, max )
 {
     return min + Math.random() * ( max - min );
