@@ -106,7 +106,11 @@ CUSTOM_EXTS = (".webm", ".mp4", ".m4v")
 
 SHUFFLE_FOLDER = "deck-animations-rotation"
 PREVIEW_FOLDER = "decky-preview"  # holds whatever the Preview button shows
-FITS = ("contain", "cover", "none")
+FITS = ("contain", "cover", "none", "fill")
+# boot/suspend videos go through Steam's own player, which crops a 16:10 video on a
+# 16:9 TV; these re-encode the chosen video to 1920x1080 (cached per video and fit)
+MOVIE_FITS = ("original", "contain", "cover", "stretch")
+MOVIES_CACHE = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "movies")
 # earlier names of the rotation folder ("Decky Shuffle" broke Steam's host mapping)
 _OLD_SHUFFLE_FOLDERS = ("Decky Shuffle", "decky-shuffle")
 MARKER = ".decky-screensavers"  # kept from the old name so existing folders stay ours
@@ -148,7 +152,7 @@ _state = {
     "giphyKey": "",
     # library ids used as boot/suspend/throbber videos ("" = Steam's default)
     # randomizeEveryMin: also re-pick every N minutes (0 = off); lastShuffle: epoch seconds
-    "movies": {"boot": "", "suspend": "", "throbber": "", "shuffleOnBoot": False, "randomizeEveryMin": 0, "lastShuffle": 0},
+    "movies": {"boot": "", "suspend": "", "throbber": "", "shuffleOnBoot": False, "randomizeEveryMin": 0, "lastShuffle": 0, "fit": "original"},
     "importedAnimationChanger": False,
     "lastBootId": "",
 }
@@ -200,7 +204,8 @@ def _folder_name(title, video_id):
         name = cut[: cut.rfind("-")] if "-" in cut else name[:40]
     name = name.strip("-") or video_id.lower()
     used = {entry["folder"] for entry in _state["installed"].values() if entry["id"] != video_id}
-    used.add(SHUFFLE_FOLDER)
+    # folders the plugin itself owns and rewrites or removes at will
+    used.update({SHUFFLE_FOLDER, PREVIEW_FOLDER, *(_classic_folder(c) for c in CLASSICS)})
     candidate = name
     if candidate in used or (
         os.path.exists(os.path.join(SCREENSAVERS_DIR, candidate))
@@ -416,7 +421,7 @@ def _default_fit():
 def _sync_entry(video_id):
     """Create or remove a library video's screensaver folder to match its flag."""
     entry = _state["installed"][video_id]
-    if entry.get("screensaver", True):
+    if entry.get("screensaver", True) and not entry.get("disabled"):
         _write_single(video_id)
     else:
         _remove_folder(entry["folder"])
@@ -500,7 +505,12 @@ def _remove_folder(folder):
 
 def _in_shuffle(video_id):
     entry = _state["installed"][video_id]
-    return entry.get("screensaver", True) and entry.get("shuffleInclude", True) and os.path.exists(_video_path(video_id))
+    return (
+        entry.get("screensaver", True)
+        and entry.get("shuffleInclude", True)
+        and not entry.get("disabled")
+        and os.path.exists(_video_path(video_id))
+    )
 
 
 def _classic_in_shuffle(classic_id):
@@ -614,28 +624,72 @@ async def _download(url, dest, kind):
             os.remove(tmp)
 
 
-async def _to_webm(src, dest):
-    """Convert a video to VP9 WebM with ffmpeg (a GIF-sized clip takes a second or two)."""
+async def _ffmpeg_to_webm(args, dest):
+    """Run ffmpeg with `args` (input and filters) writing a WebM to dest."""
     tmp = dest + ".part.webm"
     # Decky is a PyInstaller bundle: it points LD_LIBRARY_PATH at its own (older)
     # libstdc++, which the system ffmpeg must not inherit.
     env = {k: v for k, v in os.environ.items() if k not in ("LD_LIBRARY_PATH", "LD_PRELOAD")}
     if os.environ.get("LD_LIBRARY_PATH_ORIG"):
         env["LD_LIBRARY_PATH"] = os.environ["LD_LIBRARY_PATH_ORIG"]
+    proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
-            _FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", src,
-            "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "32", "-row-mt", "1", "-cpu-used", "4",
-            "-pix_fmt", "yuv420p", "-an", tmp,
+            _FFMPEG, "-hide_banner", "-loglevel", "error", "-y", *args, tmp,
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE, env=env,
         )
-        _, err = await asyncio.wait_for(proc.communicate(), 600)
+        try:
+            _, err = await asyncio.wait_for(proc.communicate(), 900)
+        except asyncio.TimeoutError:
+            raise RuntimeError("ffmpeg timed out") from None
         if proc.returncode != 0 or _video_kind(tmp) != "webm":
             raise RuntimeError(f"ffmpeg failed: {err.decode(errors='replace').strip()[:200]}")
         os.replace(tmp, dest)
     finally:
+        # a timeout or a cancelled task (plugin unload) must not leave ffmpeg running
+        if proc is not None and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except ProcessLookupError:
+                pass
         if os.path.exists(tmp):
             os.remove(tmp)
+
+
+async def _to_webm(src, dest):
+    """Convert a video to VP9 WebM (a GIF-sized clip takes a second or two)."""
+    await _ffmpeg_to_webm(
+        ["-i", src, "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "32", "-row-mt", "1", "-cpu-used", "4", "-pix_fmt", "yuv420p", "-an"],
+        dest,
+    )
+
+
+_MOVIE_FILTERS = {
+    "contain": "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,setsar=1",
+    "cover": "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1",
+    "stretch": "scale=1920:1080,setsar=1",
+}
+
+
+async def _fitted_movie(video_id, fit):
+    """The library video re-encoded to 16:9 for Steam's own player, cached per fit.
+    Falls back to the original file when ffmpeg is missing."""
+    src = _video_path(video_id)
+    if fit not in _MOVIE_FILTERS or not _FFMPEG:
+        return src
+    os.makedirs(MOVIES_CACHE, exist_ok=True)
+    dest = os.path.join(MOVIES_CACHE, f"{video_id}.{fit}.webm")
+    if os.path.exists(dest) and os.path.getmtime(dest) >= os.path.getmtime(src):
+        return dest
+    decky.logger.info(f"re-encoding {video_id} as {fit} 1920x1080 for the boot/suspend player")
+    await _ffmpeg_to_webm(
+        ["-i", src, "-vf", _MOVIE_FILTERS[fit], "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "30", "-row-mt", "1", "-cpu-used", "5",
+         "-pix_fmt", "yuv420p", "-c:a", "libopus", "-b:a", "128k"],
+        dest,
+    )
+    _own_tree(MOVIES_CACHE)
+    return dest
 
 
 def _add_local_entry(video_id, name, title, kind, extra=None):
@@ -670,6 +724,7 @@ def _movie_candidates(slot):
         for vid, entry in _state["installed"].items()
         if entry["type"] == SLOT_TYPE[slot]
         and not entry.get("shuffleExclude")
+        and not entry.get("disabled")
         and os.path.exists(_video_path(vid))
     ]
 
@@ -713,14 +768,16 @@ def _shuffle_movies():
     _state["movies"]["lastShuffle"] = time.time()
 
 
-def _apply_movies():
+async def _apply_movies():
     """Point Steam's movie overrides at the chosen library videos. Only ever
     replaces symlinks; a real file someone put there is kept as *.orig."""
     os.makedirs(MOVIES_DIR, exist_ok=True)
+    fit = _state["movies"].get("fit", "original")
     for slot, name in MOVIE_FILES.items():
         path = os.path.join(MOVIES_DIR, name)
         video_id = _state["movies"].get(slot, "")
-        if video_id and (video_id not in _state["installed"] or not os.path.exists(_video_path(video_id))):
+        entry = _state["installed"].get(video_id)
+        if video_id and (not entry or entry.get("disabled") or not os.path.exists(_video_path(video_id))):
             _state["movies"][slot] = video_id = ""
         if os.path.islink(path):
             os.remove(path)
@@ -732,7 +789,13 @@ def _apply_movies():
                 os.remove(path)
             else:
                 os.replace(path, orig)
-        os.symlink(_video_path(video_id), path)
+        target = _video_path(video_id)
+        if fit != "original":
+            try:
+                target = await _fitted_movie(video_id, fit)
+            except Exception:  # pylint: disable=broad-except
+                decky.logger.exception(f"could not re-encode {video_id} for the {slot} slot; using the original")
+        os.symlink(target, path)
         if getattr(os, "geteuid", lambda: -1)() == 0:
             st = os.stat(decky.DECKY_USER_HOME)
             os.lchown(path, st.st_uid, st.st_gid)
@@ -971,7 +1034,7 @@ class Plugin:
             if _state["movies"]["shuffleOnBoot"] and boot_id != _state["lastBootId"]:
                 _shuffle_movies()
             _state["lastBootId"] = boot_id
-            _apply_movies()
+            await _apply_movies()
             _save_state()
         except Exception:  # pylint: disable=broad-except
             decky.logger.exception("failed to apply boot/suspend videos")
@@ -993,12 +1056,17 @@ class Plugin:
             dest = os.path.join(VIDEOS_DIR, f"{video_id}.webm")
             try:
                 await _to_webm(src, dest)
-                os.remove(src)
                 entry["file"] = f"{video_id}.webm"
                 entry["videoDuration"] = _video_duration(dest)
+                # state first, then the old file: a restart in between must not
+                # leave an entry pointing at a file that is gone
+                _save_state()
+                os.remove(src)
                 _own_tree(VIDEOS_DIR)
                 _sync_entry(video_id)
                 done += 1
+            except asyncio.CancelledError:
+                raise
             except Exception:  # pylint: disable=broad-except
                 decky.logger.exception(f"could not convert {video_id} to webm")
         if done:
@@ -1007,6 +1075,13 @@ class Plugin:
             decky.logger.info(f"converted {done} GIF(s) from mp4 to webm")
 
     async def _unload(self):
+        task = getattr(self, "_convert_task", None)
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):  # pylint: disable=broad-except
+                pass
         if os.path.exists(_DISPLAY_OFF_FLAG):
             try:
                 _set_backlight(True)
@@ -1101,7 +1176,7 @@ class Plugin:
             for slot in MOVIE_FILES:
                 if _state["movies"][slot] == video_id:
                     _state["movies"][slot] = ""
-            _apply_movies()
+            await _apply_movies()
             _sync_shuffle()
             _save_state()
             return {"ok": True, "state": _public_state()}
@@ -1196,9 +1271,12 @@ class Plugin:
             entry = _state["installed"].get(video_id)
             if not entry:
                 return {"ok": False, "error": "not installed"}
-            for key in ("screensaver", "boomerang", "shuffleExclude", "shuffleInclude"):
+            for key in ("screensaver", "boomerang", "shuffleExclude", "shuffleInclude", "disabled"):
                 if key in patch:
                     entry[key] = bool(patch[key])
+            if "disabled" in patch:
+                # a disabled video leaves the boot/suspend slots it held
+                await _apply_movies()
             if patch.get("fit") in FITS:
                 entry["fit"] = patch["fit"]
             if isinstance(patch.get("tags"), list):
@@ -1286,7 +1364,7 @@ class Plugin:
             if video_id and video_id not in _state["installed"]:
                 return {"ok": False, "error": "not installed"}
             _state["movies"][slot] = video_id
-            _apply_movies()
+            await _apply_movies()
             _save_state()
             return {"ok": True, "state": _public_state()}
         except Exception as err:  # pylint: disable=broad-except
@@ -1297,7 +1375,7 @@ class Plugin:
         """Pick new random boot/suspend/throbber videos right now."""
         try:
             _shuffle_movies()
-            _apply_movies()
+            await _apply_movies()
             _save_state()
             return {"ok": True, "state": _public_state()}
         except Exception as err:  # pylint: disable=broad-except
@@ -1311,6 +1389,13 @@ class Plugin:
             _state["movies"]["randomizeEveryMin"] = patch["randomizeEveryMin"]
             # count the interval from now, not from the last boot
             _state["movies"]["lastShuffle"] = time.time()
+        if patch.get("fit") in MOVIE_FITS and patch["fit"] != _state["movies"].get("fit"):
+            _state["movies"]["fit"] = patch["fit"]
+            try:
+                await _apply_movies()
+            except Exception as err:  # pylint: disable=broad-except
+                decky.logger.exception("re-applying movies failed")
+                return {"ok": False, "error": str(err)}
         _save_state()
         return {"ok": True, "state": _public_state()}
 
@@ -1416,7 +1501,7 @@ class Plugin:
                     _state["movies"][slot] = video_id
             _state["movies"]["shuffleOnBoot"] = config.get("randomize") == "all"
             _state["importedAnimationChanger"] = True
-            _apply_movies()
+            await _apply_movies()
             _save_state()
 
             skipped_other = len(config.get("custom_animations", [])) + len(config.get("custom_sets", []))

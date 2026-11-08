@@ -71,7 +71,7 @@ import {
 import { CSS, PostCard, PostModal } from './components';
 import { t, useLanguage } from './i18n';
 import { FinishSection, SettingsPanel, ShuffleSection } from './SettingsPanel';
-import { GifResult, InstalledEntry, MOVIE_SLOTS, MovieSlot, PostLike, RepoPost } from './types';
+import { GifResult, InstalledEntry, MOVIE_SLOTS, MovieFit, MovieSlot, PostLike, RepoPost } from './types';
 
 export const MANAGER_ROUTE = '/deck-animations';
 
@@ -586,7 +586,8 @@ const Badge: FC<{ kind: BadgeKind; children: React.ReactNode }> = ({ kind, child
 const EntryBadges: FC<{ entry: InstalledEntry }> = ({ entry }) => (
   <div className="dss-badges">
     <Badge kind={entry.type}>{t(`type.${entry.type}`)}</Badge>
-    {entry.screensaver && <Badge kind="ss">{t('lib.badgeSs')}</Badge>}
+    {entry.disabled && <Badge kind="muted">{t('lib.badgeOff')}</Badge>}
+    {entry.screensaver && !entry.disabled && <Badge kind="ss">{t('lib.badgeSs')}</Badge>}
     {activeSlots(entry).map((s) => (
       <Badge key={s} kind="slot">
         {t('lib.inUse', { slot: t(`slotLong.${s}`).split(' (')[0] })}
@@ -824,7 +825,7 @@ const MovieSlotRow: FC<{ slot: MovieSlot }> = ({ slot }) => {
   const options = [
     { data: DEFAULT_MOVIE, label: t('movies.default') },
     ...state.installed
-      .filter((e) => fitsSlot(e, slot))
+      .filter((e) => fitsSlot(e, slot) && !e.disabled)
       .sort((a, b) => a.title.localeCompare(b.title))
       .map((e) => ({ data: e.id, label: e.title })),
   ];
@@ -851,6 +852,33 @@ const MovieSlotRow: FC<{ slot: MovieSlot }> = ({ slot }) => {
   );
 };
 
+
+const MOVIE_FITS: MovieFit[] = ['original', 'contain', 'cover', 'stretch'];
+
+/** Steam's own player crops a 16:10 video on a 16:9 TV: re-encode the chosen ones. */
+const MovieFitRow: FC = () => {
+  const state = useBackendState();
+  const [busy, run] = useBusy();
+  return (
+    <PanelSection title={t('movies.fit')}>
+      <PanelSectionRow>
+        <DropdownItem
+          label={t('movies.fit')}
+          description={t(state.device.kind === 'tv' ? 'movies.fitDescTv' : 'movies.fitDesc')}
+          rgOptions={MOVIE_FITS.map((f) => ({ data: f, label: t(`movies.fit.${f}`) }))}
+          selectedOption={state.movies.fit ?? 'original'}
+          disabled={busy}
+          onChange={(o) =>
+            void run(async () => {
+              await setMovieOptions({ fit: o.data as MovieFit });
+              toast(t('movies.fitApplied'));
+            })
+          }
+        />
+      </PanelSectionRow>
+    </PanelSection>
+  );
+};
 
 const RandomizeSection: FC<{ note?: string }> = ({ note }) => {
   const state = useBackendState();
@@ -1061,6 +1089,7 @@ const MoviePoolView: FC<{ type: 'boot' | 'suspend' }> = ({ type }) => {
           <MovieSlotRow key={slot} slot={slot} />
         ))}
       </Focusable>
+      <MovieFitRow />
       <RandomizeSection note={t('rot.sharedNote')} />
       <RotationList
         title={t(`rot.listTitle.${type}`)}
@@ -1091,7 +1120,7 @@ const ScreensaverPoolView: FC = () => {
       };
     }),
     ...state.installed
-      .filter((e) => e.screensaver)
+      .filter((e) => e.screensaver && !e.disabled)
       .sort((a, b) => a.title.localeCompare(b.title))
       .map((e) => ({
         key: e.id,

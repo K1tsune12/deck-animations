@@ -36,7 +36,7 @@ let state: BackendState = {
   movies: { boot: '', suspend: '', throbber: '', shuffleOnBoot: false, randomizeEveryMin: 0, lastShuffle: 0 },
   animationChangerFound: false,
   importedAnimationChanger: false,
-  shuffleFolder: 'decky-shuffle',
+  shuffleFolder: 'deck-animations-rotation',
   screensaversDir: '',
   customDir: '',
 };
@@ -80,7 +80,7 @@ export const setBoomerang = (id: string, enabled: boolean) => mutate('set_option
 export const setOptions = (
   id: string,
   patch: Partial<
-    Pick<InstalledEntry, 'boomerang' | 'fit' | 'screensaver' | 'shuffleExclude' | 'shuffleInclude' | 'tags' | 'title'>
+    Pick<InstalledEntry, 'boomerang' | 'disabled' | 'fit' | 'screensaver' | 'shuffleExclude' | 'shuffleInclude' | 'tags' | 'title'>
   >,
 ) => mutate('set_options', id, patch);
 export const setMovie = (slot: MovieSlot, id: string) => mutate('set_movie', slot, id);
@@ -112,7 +112,7 @@ export async function preparePreview(id: string): Promise<string> {
   return res.folder;
 }
 export const shuffleMovies = () => mutate('shuffle_movies');
-export const setMovieOptions = (patch: Partial<Pick<MovieSettings, 'shuffleOnBoot' | 'randomizeEveryMin'>>) =>
+export const setMovieOptions = (patch: Partial<Pick<MovieSettings, 'shuffleOnBoot' | 'randomizeEveryMin' | 'fit'>>) =>
   mutate('set_movie_options', patch);
 
 export interface ImportSummary {

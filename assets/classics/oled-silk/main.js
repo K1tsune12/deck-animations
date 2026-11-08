@@ -3,6 +3,7 @@
 
 const view = CreateCanvas();
 const [ c1, c2 ] = Palette( '#33e6ff', '#ff4dc4' );
+window.ART_COLORS = [ c1, c2 ]; // for the optional clock overlay
 const COUNT = 260;
 const TRAIL = 18;
 const threads = [];

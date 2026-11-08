@@ -7,7 +7,9 @@
 ( () =>
 {
     const box = Clock.Box();
-    box.style.color = Clock.cfg.clockColor || Clock.color( '#ffffff' );
+    // the art's main colour (its main.js publishes ART_COLORS) unless the user picked one
+    const art = window.ART_COLORS && window.ART_COLORS[ 0 ];
+    box.style.color = Clock.cfg.clockColor || ( art ? Rgba( art, 1 ) : '#ffffff' );
     box.style.textShadow = '0 0 12px rgba(0, 0, 0, 0.9)';
 
     const time = document.createElement( 'div' );

@@ -3,6 +3,7 @@
 
 const view = CreateCanvas();
 const [ c1, c2 ] = Palette( '#33ff99', '#a64dff' );
+window.ART_COLORS = [ c1, c2 ]; // for the optional clock overlay
 const STEP = 3; // CSS px per column
 
 /** A 1 px wide vertical light streak, scaled per column: cheap to draw. */

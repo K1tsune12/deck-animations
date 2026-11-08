@@ -4,6 +4,7 @@
 const COUNT = 70;
 const view = CreateCanvas();
 const [ c1, c2 ] = Palette( '#ffd36b', '#9dff6b' );
+window.ART_COLORS = [ c1, c2 ]; // for the optional clock overlay
 const flies = [];
 
 function Spawn( fly )

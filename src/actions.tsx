@@ -33,7 +33,7 @@ import {
 } from './steam';
 import { CLOCK_MOTIONS, CLOCK_POSITIONS, CLOCK_SPEEDS, ClassicOptions, Fit, InstalledEntry, MOVIE_SLOTS, MovieSlot, SLOT_TYPE } from './types';
 
-const FITS: Fit[] = ['cover', 'contain', 'none'];
+const FITS: Fit[] = ['cover', 'contain', 'fill', 'none'];
 
 export const toast = (body: string) => toaster.toast({ title: 'Deck Animations', body });
 export const errorText = (err: unknown) => String((err as Error)?.message ?? err);
@@ -64,13 +64,19 @@ export async function useFolder(folder: string, title: string): Promise<void> {
  * Show a screensaver folder full screen without keeping it: the previously
  * active screensaver is put back as soon as the preview is dismissed.
  */
+let previewRunning = false;
+
 export async function previewFolder(folder: string, onEnd?: () => void): Promise<void> {
+  // a second preview while one shows would "restore" the first preview's folder
+  if (previewRunning) return;
+  previewRunning = true;
   const previous = getClientSettings()?.screensaverCurrentId ?? getLastActive();
   // the screen-off watcher must not treat the preview as an idle screensaver
   // (it would re-force it, and later the restored one: the rotation shows up)
   setPreviewing(true);
   if (!(await activateFolder(folder))) {
     setPreviewing(false);
+    previewRunning = false;
     throw new Error(t('toast.folderNotListed'));
   }
   let started = false;
@@ -78,6 +84,7 @@ export async function previewFolder(folder: string, onEnd?: () => void): Promise
   const finish = () => {
     if (done) return;
     done = true;
+    previewRunning = false;
     stop();
     if (previous) setActiveScreensaver(previous);
     onEnd?.();
@@ -126,7 +133,7 @@ export function useScreensaverChoices() {
   const active = settings?.screensaverCurrentId ?? getLastActive();
   const activeFolder = folderFromId(active);
   const shuffleCount =
-    state.installed.filter((e) => e.screensaver && e.shuffleInclude !== false).length +
+    state.installed.filter((e) => e.screensaver && !e.disabled && e.shuffleInclude !== false).length +
     state.classics.filter((c) => state.classicOptions[c]?.shuffleInclude).length;
 
   const options = [
@@ -140,7 +147,7 @@ export function useScreensaverChoices() {
       label: `${classicPrefix(c)} · ${classicName(c)}`,
     })),
     ...state.installed
-      .filter((e) => e.screensaver)
+      .filter((e) => e.screensaver && !e.disabled)
       .map((e) => ({ data: FOLDER_PREFIX + e.folder, label: `${t(`prefix.${e.type}`)} · ${e.title}` })),
   ];
   const selected = activeFolder ? FOLDER_PREFIX + activeFolder : active || undefined;
@@ -240,12 +247,19 @@ export const OptionsModal: FC<{ id: string; closeModal?: () => void }> = ({ id, 
         </DialogButton>
       </Focusable>
       <ToggleField
+        label={t('opts.enabled')}
+        description={t('opts.enabledDesc')}
+        checked={!entry.disabled}
+        disabled={busy}
+        onChange={(v) => void run(() => setOptions(entry.id, { disabled: !v }))}
+      />
+      <ToggleField
         label={t('lib.badgeSs')}
         checked={!!entry.screensaver}
-        disabled={busy}
+        disabled={busy || !!entry.disabled}
         onChange={(v) => void run(() => setOptions(entry.id, { screensaver: v }))}
       />
-      {entry.screensaver && (
+      {entry.screensaver && !entry.disabled && (
         <>
         <ToggleField
           label={t('common.boomerang')}
@@ -490,7 +504,9 @@ const ColorChoice: FC<{ id: string; field: 'color' | 'color2' | 'clockColor'; fa
             return;
           }
           setCustom(false);
-          void run(() => setClassicOptions(id, { [field]: o.data as string }));
+          // the overlay clock's "Default" means "follow the art's main colour": store nothing
+          const value = field === 'clockColor' && o.data === fallback ? '' : (o.data as string);
+          void run(() => setClassicOptions(id, { [field]: value }));
         }}
       />
       {custom && (

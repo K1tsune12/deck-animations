@@ -102,7 +102,7 @@ function plannedEndMs(): number | null {
   if (!playback.limit) return null;
 
   if (folder === shuffleFolder) {
-    const videos = installed.filter((e) => e.screensaver && e.shuffleInclude !== false);
+    const videos = installed.filter((e) => e.screensaver && !e.disabled && e.shuffleInclude !== false);
     const pageCount = classics.filter((c) => classicOptions[c]?.shuffleInclude).length;
     if (!videos.length && !pageCount) return null;
     const one = videos.length + pageCount === 1;

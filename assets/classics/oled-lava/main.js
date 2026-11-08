@@ -3,6 +3,7 @@
 
 const view = CreateCanvas();
 const [ c1, c2 ] = Palette( '#ff3b3b', '#a64dff' );
+window.ART_COLORS = [ c1, c2 ]; // for the optional clock overlay
 const BLOBS = 7;
 const blobs = [];
 

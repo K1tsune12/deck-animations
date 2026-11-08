@@ -33,6 +33,8 @@ export interface InstalledEntry {
   fit?: Fit;
   /** Listed in Steam's screensavers (otherwise it only lives in the library). */
   screensaver?: boolean;
+  /** Kept in the library but out of everything: Steam's list, the rotation, boot/suspend. */
+  disabled?: boolean;
   /** Kept out of boot/suspend randomization. */
   shuffleExclude?: boolean;
   /** Part of the Shuffle screensaver (default true for screensavers). */
@@ -135,7 +137,9 @@ export const CLOCK_POSITIONS = [
 ] as const;
 export type ClockPosition = (typeof CLOCK_POSITIONS)[number];
 
-export type Fit = 'contain' | 'cover' | 'none';
+export type Fit = 'contain' | 'cover' | 'none' | 'fill';
+/** Boot/suspend videos re-encoded to 16:9 for Steam's own player (TV). */
+export type MovieFit = 'original' | 'contain' | 'cover' | 'stretch';
 
 export type MovieSlot = 'boot' | 'suspend' | 'throbber';
 
@@ -149,6 +153,7 @@ export interface MovieSettings {
   randomizeEveryMin: number;
   /** Epoch seconds of the last pick. */
   lastShuffle: number;
+  fit?: MovieFit;
 }
 
 export const MOVIE_SLOTS: MovieSlot[] = ['boot', 'suspend', 'throbber'];
