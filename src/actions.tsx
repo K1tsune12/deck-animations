@@ -20,6 +20,7 @@ import {
 import { CLASSICS, classicFolder, classicName, classicPrefix } from './classics';
 import { getClientSettings, useClientSettings } from './clientSettings';
 import { getLocale, t, useLanguage } from './i18n';
+import { setPreviewing } from './screenOff';
 import {
   BOUNCING_LOGO_ID,
   SLIDESHOW_ID,
@@ -65,7 +66,13 @@ export async function useFolder(folder: string, title: string): Promise<void> {
  */
 export async function previewFolder(folder: string, onEnd?: () => void): Promise<void> {
   const previous = getClientSettings()?.screensaverCurrentId ?? getLastActive();
-  if (!(await activateFolder(folder))) throw new Error(t('toast.folderNotListed'));
+  // the screen-off watcher must not treat the preview as an idle screensaver
+  // (it would re-force it, and later the restored one: the rotation shows up)
+  setPreviewing(true);
+  if (!(await activateFolder(folder))) {
+    setPreviewing(false);
+    throw new Error(t('toast.folderNotListed'));
+  }
   let started = false;
   let done = false;
   const finish = () => {
@@ -74,17 +81,27 @@ export async function previewFolder(folder: string, onEnd?: () => void): Promise
     stop();
     if (previous) setActiveScreensaver(previous);
     onEnd?.();
+    // the "inactive" notification may still be on its way to the watcher
+    window.setTimeout(() => setPreviewing(false), PREVIEW_SETTLE_MS);
   };
   const stop = onScreensaverActiveChanged((active) => {
     if (active) started = true;
     else if (started) finish();
   });
-  setTimeout(() => void previewScreensaver(), 300);
+  // force only once Steam reports the preview folder as the active screensaver,
+  // otherwise the previous one (the rotation, say) is what comes up
+  const t0 = Date.now();
+  while (folderFromId(getClientSettings()?.screensaverCurrentId ?? '') !== folder && Date.now() - t0 < PREVIEW_SETTLE_MS) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  void previewScreensaver();
   // never leave the preview selected if it somehow didn't start
   setTimeout(() => {
     if (!started) finish();
   }, 5000);
 }
+
+const PREVIEW_SETTLE_MS = 1500;
 
 /** Full-screen preview of any library video, with its current options. */
 export async function previewEntry(entry: InstalledEntry): Promise<void> {

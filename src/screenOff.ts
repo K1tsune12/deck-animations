@@ -64,6 +64,21 @@ export function setCurrentScreensaverId(id: string): void {
   currentId = id;
 }
 
+let previewing = false;
+
+/** A preview started by the user is on (or just ended): it is not an idle
+ *  screensaver, so no re-forcing when it starts under a menu or ends quickly,
+ *  and no display-off timer. */
+export function setPreviewing(on: boolean): void {
+  previewing = on;
+  if (on) {
+    window.clearTimeout(offTimer);
+    offTimer = undefined;
+    finished = false;
+    reforces = [];
+  }
+}
+
 function menuStore(): any {
   return (window as any).SteamUIStore?.WindowStore?.MainWindowInstance?.MenuStore;
 }
@@ -194,6 +209,11 @@ function onResume(): void {
 function onActiveChange(active: boolean): void {
   if (suspending || (active && justWoke())) {
     if (active && !suspending) void stopScreensaver().catch(() => {});
+    wasActive = active;
+    return;
+  }
+  if (previewing) {
+    if (!active && displayOff) void setDisplay(true);
     wasActive = active;
     return;
   }
