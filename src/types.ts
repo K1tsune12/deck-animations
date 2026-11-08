@@ -49,6 +49,8 @@ export interface InstalledEntry {
   videoDuration?: number;
   /** Original path, for videos imported from the Deck. */
   source?: string;
+  /** Epoch seconds it joined the library (missing for older entries). */
+  addedAt?: number;
 }
 
 export interface ShuffleSettings {
@@ -95,6 +97,8 @@ export interface DeviceInfo {
 /** Per classic/clock options (clock ones only matter for clocks). */
 export interface ClassicOptions {
   shuffleInclude?: boolean;
+  /** Kept in the library but out of Steam's list and the rotation. */
+  disabled?: boolean;
   color?: string;
   color2?: string;
   font?: 'sans' | 'thin' | 'serif' | 'mono';

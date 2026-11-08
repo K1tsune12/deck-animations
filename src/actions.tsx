@@ -170,7 +170,7 @@ export function useScreensaverChoices() {
   const activeFolder = folderFromId(active);
   const shuffleCount =
     state.installed.filter((e) => e.screensaver && !e.disabled && e.shuffleInclude !== false).length +
-    state.classics.filter((c) => state.classicOptions[c]?.shuffleInclude).length;
+    state.classics.filter((c) => state.classicOptions[c]?.shuffleInclude && !state.classicOptions[c]?.disabled).length;
 
   const options = [
     { data: SLIDESHOW_ID, label: t('qam.steamSlideshow') },
@@ -178,7 +178,7 @@ export function useScreensaverChoices() {
     ...(state.shuffle.enabled && shuffleCount
       ? [{ data: FOLDER_PREFIX + state.shuffleFolder, label: t('qam.shuffle', { n: shuffleCount }) }]
       : []),
-    ...CLASSICS.filter((c) => state.classics.includes(c.id)).map((c) => ({
+    ...CLASSICS.filter((c) => state.classics.includes(c.id) && !state.classicOptions[c.id]?.disabled).map((c) => ({
       data: FOLDER_PREFIX + classicFolder(c.id),
       label: `${classicPrefix(c)} · ${classicName(c)}`,
     })),
@@ -265,17 +265,19 @@ export const OptionsModal: FC<{ id: string; closeModal?: () => void }> = ({ id, 
 
   return (
     <ModalRoot closeModal={closeModal}>
-      {/* text fields first: the on-screen keyboard covers the lower half of the screen */}
-      <Focusable style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', marginBottom: '12px' }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>{t('opts.name')}</div>
-          <TextField value={title} onChange={(e) => setTitle(e.target.value)} />
-          <div style={{ fontWeight: 'bold', margin: '10px 0 2px' }}>{t('opts.tags')}</div>
-          <div style={{ color: '#9aa', fontSize: '12px', marginBottom: '4px' }}>{t('opts.tagsDesc')}</div>
-          <TextField value={tags} onChange={(e) => setTags(e.target.value)} />
-        </div>
+      {/* text fields first: the on-screen keyboard covers the lower half of the screen.
+          One plain column, so the controller moves name -> tags -> save with up/down
+          (a side-by-side layout left the fields unreachable from the pad). */}
+      <TextField label={t('opts.name')} value={title} onChange={(e) => setTitle(e.target.value)} />
+      <TextField
+        label={t('opts.tags')}
+        description={t('opts.tagsDesc')}
+        value={tags}
+        onChange={(e) => setTags(e.target.value)}
+      />
+      <Focusable style={{ display: 'flex', justifyContent: 'flex-end', margin: '8px 0 12px' }}>
         <DialogButton
-          style={{ width: 'auto', minWidth: 0, padding: '0 16px' }}
+          style={{ width: 'auto', minWidth: 0, padding: '0 24px' }}
           disabled={busy || !title.trim()}
           onClick={() => void save()}
         >

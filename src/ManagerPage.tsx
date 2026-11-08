@@ -6,6 +6,8 @@ import {
   Dropdown,
   DropdownItem,
   Focusable,
+  Menu,
+  MenuItem,
   ModalRoot,
   Navigation,
   PanelSection,
@@ -14,10 +16,24 @@ import {
   Tabs,
   TextField,
   ToggleField,
+  showContextMenu,
   showModal,
 } from '@decky/ui';
 import { FC, useEffect, useMemo, useRef, useState } from 'react';
-import { FaCheckSquare, FaFilm, FaRegSquare } from 'react-icons/fa';
+import {
+  FaBan,
+  FaCheckSquare,
+  FaChevronDown,
+  FaChevronRight,
+  FaEllipsisH,
+  FaFilm,
+  FaPlayCircle,
+  FaRegSquare,
+  FaSyncAlt,
+  FaTh,
+  FaThList,
+  FaTv,
+} from 'react-icons/fa';
 
 import {
   ClassicOptionsModal,
@@ -57,6 +73,10 @@ import {
   uninstall,
   uninstallClassic,
   uninstallMany,
+  uninstallClassics,
+  setClassicOptions,
+  setClassicOptionsMany,
+  getState,
   useBackendState,
 } from './backend';
 import { AnimationChangerBanner } from './animationChanger';
@@ -73,7 +93,9 @@ import {
 import { CSS, PostCard, PostModal } from './components';
 import { t, useLanguage } from './i18n';
 import { FinishSection, SettingsPanel, ShuffleSection } from './SettingsPanel';
-import { GifResult, InstalledEntry, MOVIE_SLOTS, MovieFit, MovieSlot, PostLike, RepoPost } from './types';
+import { ClassicOptions, Fit, GifResult, InstalledEntry, MOVIE_SLOTS, MovieFit, MovieSlot, PostLike, RepoPost } from './types';
+import { useClientSettings } from './clientSettings';
+import { folderFromId } from './steam';
 
 export const MANAGER_ROUTE = '/deck-animations';
 
@@ -528,53 +550,92 @@ const GifsTab: FC = () => {
 
 const VIDEO_EXTENSIONS = ['webm', 'mp4', 'm4v'];
 const LIBRARY_PAGE = 40;
-const TOP_TAGS = 14;
+const TOP_TAGS = 24;
 
-type Filter = 'all' | 'screensaver' | 'boot' | 'suspend' | 'custom' | 'gif' | 'classic';
-const FILTERS: Filter[] = ['all', 'screensaver', 'boot', 'suspend', 'custom', 'gif', 'classic'];
+type Filter = 'all' | 'inuse' | 'screensaver' | 'boot' | 'suspend' | 'gif' | 'custom' | 'classic' | 'oled' | 'disabled';
+const FILTERS: Filter[] = ['all', 'inuse', 'screensaver', 'boot', 'suspend', 'gif', 'custom', 'classic', 'oled', 'disabled'];
 
-/** One row of the library: a video/GIF, or an installed generated classic. */
+type LibSort = 'inuse' | 'name' | 'recent';
+const LIB_SORTS: LibSort[] = ['inuse', 'name', 'recent'];
+
+/** One item of the library: a video/GIF, or an installed generated screensaver. */
 type LibItem = { kind: 'entry'; entry: InstalledEntry } | { kind: 'classic'; classic: Classic };
+/** What an item is, for filters, counts and which batch actions apply. */
+type ItemKind = InstalledEntry['type'] | 'classic' | 'oled' | 'clock';
 
 // type words in both languages, so "gif", "clássico" or "classic" all work
-const TYPE_WORDS: Record<InstalledEntry['type'] | 'classic', string> = {
+const TYPE_WORDS: Record<ItemKind, string> = {
   boot: 'boot',
   suspend: 'suspend suspensão suspensao',
   custom: 'custom personalizado personalizados mine meu meus video vídeo',
   gif: 'gif gifs giphy',
   classic: 'classic classics clássico clássicos classico',
+  oled: 'oled art arte',
+  clock: 'oled clock relógio relogio',
 };
 const SCREENSAVER_WORDS = 'screensaver proteção protecao tela';
 
 const itemKey = (i: LibItem) => (i.kind === 'entry' ? i.entry.id : `classic-${i.classic.id}`);
 const itemTitle = (i: LibItem) => (i.kind === 'entry' ? i.entry.title : classicName(i.classic));
 const itemTags = (i: LibItem) => (i.kind === 'entry' ? i.entry.tags ?? [] : []);
-const itemIsScreensaver = (i: LibItem) => i.kind === 'classic' || !!i.entry.screensaver;
+const itemKind = (i: LibItem): ItemKind =>
+  i.kind === 'entry' ? i.entry.type : i.classic.clock ? 'clock' : i.classic.oled ? 'oled' : 'classic';
+const isBootish = (i: LibItem) => i.kind === 'entry' && (i.entry.type === 'boot' || i.entry.type === 'suspend');
 
-const matchesFilter = (i: LibItem, f: Filter) =>
-  f === 'all'
-    ? true
-    : f === 'screensaver'
-      ? itemIsScreensaver(i)
-      : i.kind === 'classic'
-        ? f === 'classic'
-        : i.entry.type === f;
+/** Library state an item needs that lives outside the item itself. */
+interface LibContext {
+  activeFolder: string | undefined;
+  classicOptions: Record<string, ClassicOptions>;
+}
+
+const itemDisabled = (i: LibItem, c: LibContext) =>
+  i.kind === 'entry' ? !!i.entry.disabled : !!c.classicOptions[i.classic.id]?.disabled;
+const itemIsScreensaver = (i: LibItem, c: LibContext) =>
+  !itemDisabled(i, c) && (i.kind === 'classic' || !!i.entry.screensaver);
+const itemInRotation = (i: LibItem, c: LibContext) =>
+  itemIsScreensaver(i, c) &&
+  (i.kind === 'entry' ? i.entry.shuffleInclude !== false : !!c.classicOptions[i.classic.id]?.shuffleInclude);
+const itemFolder = (i: LibItem) => (i.kind === 'entry' ? i.entry.folder : classicFolder(i.classic.id));
+/** Where it is in use right now: boot/suspend/throbber slots and the active screensaver. */
+const itemUses = (i: LibItem, c: LibContext): string[] => [
+  ...(i.kind === 'entry' ? activeSlots(i.entry).map((s) => t(`slotLong.${s}`).split(' (')[0]) : []),
+  ...(c.activeFolder && itemFolder(i) === c.activeFolder ? [t('qam.screensaver')] : []),
+];
+
+const matchesFilter = (i: LibItem, f: Filter, c: LibContext): boolean => {
+  const kind = itemKind(i);
+  switch (f) {
+    case 'all':
+      return true;
+    case 'inuse':
+      return itemUses(i, c).length > 0;
+    case 'screensaver':
+      return itemIsScreensaver(i, c);
+    case 'disabled':
+      return itemDisabled(i, c);
+    case 'oled':
+      return kind === 'oled' || kind === 'clock';
+    default:
+      return kind === f;
+  }
+};
 
 /** Everything a search can hit: name, author, type words, screensaver words, tags. */
-function searchText(i: LibItem): string {
+function searchText(i: LibItem, c: LibContext): string {
+  const kind = itemKind(i);
   const parts =
     i.kind === 'entry'
-      ? [i.entry.title, i.entry.author, TYPE_WORDS[i.entry.type], t(`type.${i.entry.type}`), ...(i.entry.tags ?? [])]
-      : [classicName(i.classic), i.classic.id, TYPE_WORDS.classic, t('type.classic'), i.classic.oled ? 'oled' : ''];
-  if (itemIsScreensaver(i)) parts.push(SCREENSAVER_WORDS, t('lib.badgeSs'));
+      ? [i.entry.title, i.entry.author, TYPE_WORDS[kind], t(`type.${i.entry.type}`), ...(i.entry.tags ?? [])]
+      : [classicName(i.classic), i.classic.id, TYPE_WORDS[kind], t('type.classic')];
+  if (itemIsScreensaver(i, c)) parts.push(SCREENSAVER_WORDS, t('lib.badgeSs'));
   return parts.join(' ').toLowerCase();
 }
 
 /** Every search word must appear somewhere (so "pokemon gif" narrows down). */
-const matchesQuery = (i: LibItem, q: string) => {
+const matchesQuery = (i: LibItem, q: string, c: LibContext) => {
   const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return true;
-  const text = searchText(i);
+  const text = searchText(i, c);
   return words.every((w) => text.includes(w));
 };
 
@@ -584,29 +645,45 @@ const Badge: FC<{ kind: BadgeKind; children: React.ReactNode }> = ({ kind, child
   <span className={`dss-badge dss-badge-${kind}`}>{children}</span>
 );
 
-/** The second line of a library item: every badge in one consistent style. */
-const EntryBadges: FC<{ entry: InstalledEntry }> = ({ entry }) => (
-  <div className="dss-badges">
-    <Badge kind={entry.type}>{t(`type.${entry.type}`)}</Badge>
-    {entry.disabled && <Badge kind="muted">{t('lib.badgeOff')}</Badge>}
-    {entry.screensaver && !entry.disabled && <Badge kind="ss">{t('lib.badgeSs')}</Badge>}
-    {activeSlots(entry).map((s) => (
-      <Badge key={s} kind="slot">
-        {t('lib.inUse', { slot: t(`slotLong.${s}`).split(' (')[0] })}
-      </Badge>
-    ))}
-    {entry.screensaver && entry.boomerang && <Badge kind="muted">{t('common.boomerang')}</Badge>}
-    {entry.screensaver && entry.fit && entry.fit !== 'contain' && (
-      <Badge kind="muted">{t(`fitBadge.${entry.fit}`)}</Badge>
-    )}
-    {entry.shuffleExclude && slotsFor(entry).length > 0 && <Badge kind="muted">{t('lib.badgeExcluded')}</Badge>}
-    {(entry.tags ?? []).map((tag) => (
-      <Badge key={tag} kind="tag">
-        #{tag}
-      </Badge>
-    ))}
-  </div>
-);
+/** Plural, for counts ("3 GIFs"). */
+const KIND_LABEL = (k: ItemKind) => (k === 'clock' ? t('oled.clocks') : k === 'oled' ? 'OLED' : t(`filter.${k}`));
+/** Singular, for one item's tag ("GIF", "Clássico", "Relógio"). */
+const KIND_ONE = (k: ItemKind) => (k === 'clock' ? t('lib.kindClock') : k === 'oled' ? 'OLED' : t(`prefix.${k}`));
+
+/** One quiet line under the title: type, length, and small state icons. */
+const ItemMeta: FC<{ item: LibItem; ctx: LibContext }> = ({ item, ctx }) => {
+  const seconds = item.kind === 'entry' ? item.entry.videoDuration || item.entry.duration : 0;
+  const uses = itemUses(item, ctx);
+  return (
+    <div className="dss-meta-line">
+      <span className={`dss-kind dss-kind-${itemKind(item)}`}>{KIND_ONE(itemKind(item))}</span>
+      {seconds ? <span>{Math.round(seconds * 10) / 10}s</span> : null}
+      {itemDisabled(item, ctx) ? (
+        <span className="dss-st dss-st-off" title={t('lib.badgeOff')}>
+          <FaBan /> {t('lib.badgeOff')}
+        </span>
+      ) : (
+        <>
+          {uses.length > 0 && (
+            <span className="dss-st dss-st-use">
+              <FaPlayCircle /> {uses.join(' · ')}
+            </span>
+          )}
+          {itemIsScreensaver(item, ctx) && (
+            <span className="dss-st" title={t('lib.badgeSs')}>
+              <FaTv />
+            </span>
+          )}
+          {itemInRotation(item, ctx) && (
+            <span className="dss-st" title={t('rot.inShuffle')}>
+              <FaSyncAlt />
+            </span>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
 
 /** Thumbnail that opens the full-screen preview when activated. */
 const Thumb: FC<{ src?: string; art?: string; onPreview: () => void }> = ({ src, art, onPreview }) => (
@@ -621,191 +698,360 @@ const Thumb: FC<{ src?: string; art?: string; onPreview: () => void }> = ({ src,
   </Focusable>
 );
 
+/** Every per-item action, in one menu (the "⋯" button). */
+function showItemMenu(item: LibItem, ctx: LibContext, target: EventTarget | undefined, run: (fn: () => Promise<unknown>) => Promise<void>) {
+  const disabled = itemDisabled(item, ctx);
+  const items: React.ReactNode[] = [];
+  const add = (key: string, label: string, fn: () => void, danger = false) =>
+    items.push(
+      <MenuItem key={key} onSelected={fn} tone={danger ? 'destructive' : undefined}>
+        {label}
+      </MenuItem>,
+    );
+
+  if (item.kind === 'entry') {
+    const e = item.entry;
+    if (!disabled) {
+      add('use', t('lib.useAs'), () => showModal(<UseAsModal id={e.id} />));
+      add('ss', e.screensaver ? t('menu.ssOff') : t('menu.ssOn'), () => void run(() => setOptions(e.id, { screensaver: !e.screensaver })));
+      if (e.screensaver)
+        add('rot', itemInRotation(item, ctx) ? t('menu.rotOff') : t('menu.rotOn'), () =>
+          void run(() => setMany([e.id], { shuffleInclude: !itemInRotation(item, ctx) })),
+        );
+    }
+    add('opts', t('common.options'), () => showModal(<OptionsModal id={e.id} />));
+    add('onoff', disabled ? t('batch.enable') : t('batch.disable'), () => void run(() => setOptions(e.id, { disabled: !disabled })));
+    add(
+      'rm',
+      t('common.remove'),
+      () =>
+        showModal(
+          <ConfirmModal
+            strTitle={t('mine.removeTitle')}
+            strDescription={t(e.type === 'custom' ? 'mine.removeCustom' : 'mine.removeOther', { title: e.title })}
+            strOKButtonText={t('common.remove')}
+            onOK={() => void run(() => uninstall(e.id))}
+          />,
+        ),
+      true,
+    );
+  } else {
+    const c = item.classic;
+    if (!disabled) {
+      add('use', t('common.use'), () => void run(() => useFolder(classicFolder(c.id), classicName(c))));
+      add('rot', itemInRotation(item, ctx) ? t('menu.rotOff') : t('menu.rotOn'), () =>
+        void run(() => setMany([`classic:${c.id}`], { shuffleInclude: !itemInRotation(item, ctx) })),
+      );
+    }
+    add('opts', t('common.options'), () => showModal(<ClassicOptionsModal id={c.id} />));
+    add('onoff', disabled ? t('batch.enable') : t('batch.disable'), () => void run(() => setClassicOptions(c.id, { disabled: !disabled })));
+    add('rm', t('common.remove'), () => void run(() => uninstallClassic(c.id)), true);
+  }
+
+  showContextMenu(<Menu label={itemTitle(item)}>{items}</Menu>, target ?? window);
+}
+
 interface Selection {
   selected: boolean;
   onToggle: () => void;
 }
 
-const LibraryRow: FC<{ entry: InstalledEntry; selection?: Selection }> = ({ entry, selection }) => {
+/** A library item as a row (list view) or a card (grid view). */
+const LibraryItem: FC<{ item: LibItem; ctx: LibContext; grid: boolean; selection?: Selection }> = ({ item, ctx, grid, selection }) => {
   const [busy, run] = useBusy();
-  const seconds = entry.videoDuration || entry.duration;
-  const preview = () => void run(() => previewEntry(entry));
-
-  return (
-    <div className="dss-item" style={entry.disabled ? { opacity: 0.6 } : undefined}>
-      <Focusable className={selection?.selected ? 'dss-row dss-selected' : 'dss-row'} flow-children="horizontal">
-        {selection && (
-          // batch mode: a checkbox in front, the row keeps all its buttons
-          <DialogButton
-            className={selection.selected ? 'dss-row-btn dss-check dss-check-on' : 'dss-row-btn dss-check'}
-            onClick={selection.onToggle}
-          >
-            {selection.selected ? <FaCheckSquare size={18} /> : <FaRegSquare size={18} />}
-          </DialogButton>
-        )}
-        <Thumb src={entry.thumbnail} onPreview={selection ? selection.onToggle : preview} />
-        <div className="dss-row-info">
-          <div className="dss-title">{entry.title}</div>
-          {seconds ? <div className="dss-sub">{Math.round(seconds * 10) / 10}s</div> : null}
-        </div>
-        <DialogButton className="dss-row-btn" disabled={busy} onClick={preview}>
-          {t('common.preview')}
-        </DialogButton>
-        <DialogButton
-          className="dss-row-btn"
-          disabled={busy}
-          onClick={() => void run(() => setOptions(entry.id, { screensaver: !entry.screensaver }))}
-        >
-          {entry.screensaver ? t('lib.ssOn') : t('lib.ssOff')}
-        </DialogButton>
-        <DialogButton className="dss-row-btn" disabled={busy} onClick={() => showModal(<UseAsModal id={entry.id} />)}>
-          {t('lib.useAs')}
-        </DialogButton>
-        <DialogButton className="dss-row-btn" disabled={busy} onClick={() => showModal(<OptionsModal id={entry.id} />)}>
-          {t('common.options')}
-        </DialogButton>
-        <DialogButton
-          className="dss-row-btn dss-danger"
-          disabled={busy}
-          onClick={() =>
-            showModal(
-              <ConfirmModal
-                strTitle={t('mine.removeTitle')}
-                strDescription={t(entry.type === 'custom' ? 'mine.removeCustom' : 'mine.removeOther', {
-                  title: entry.title,
-                })}
-                strOKButtonText={t('common.remove')}
-                onOK={() => void run(() => uninstall(entry.id))}
-              />,
-            )
-          }
-        >
-          {t('common.remove')}
-        </DialogButton>
-      </Focusable>
-      <EntryBadges entry={entry} />
-    </div>
+  const preview = () =>
+    void run(() => (item.kind === 'entry' ? previewEntry(item.entry) : previewFolder(classicFolder(item.classic.id))));
+  const thumb = item.kind === 'entry' ? { src: item.entry.thumbnail } : { art: item.classic.art };
+  const off = itemDisabled(item, ctx);
+  const check = selection && (
+    <DialogButton
+      className={selection.selected ? 'dss-row-btn dss-check dss-check-on' : 'dss-row-btn dss-check'}
+      onClick={selection.onToggle}
+    >
+      {selection.selected ? <FaCheckSquare size={18} /> : <FaRegSquare size={18} />}
+    </DialogButton>
   );
-};
+  const more = (
+    <DialogButton
+      className="dss-row-btn dss-more"
+      disabled={busy}
+      onClick={(e: any) => showItemMenu(item, ctx, e?.currentTarget, run)}
+    >
+      <FaEllipsisH />
+    </DialogButton>
+  );
+  const previewBtn = (
+    <DialogButton className="dss-row-btn" disabled={busy} onClick={preview}>
+      {t('common.preview')}
+    </DialogButton>
+  );
+  const classes = ['dss-lib', grid ? 'dss-lib-card' : 'dss-lib-row', selection?.selected ? 'dss-selected' : '', off ? 'dss-off' : '']
+    .filter(Boolean)
+    .join(' ');
 
-const ClassicLibraryRow: FC<{ classic: Classic }> = ({ classic }) => {
-  const state = useBackendState();
-  const [busy, run] = useBusy();
-  return (
-    <div className="dss-item">
-      <Focusable className="dss-row" flow-children="horizontal">
-        <Thumb art={classic.art} onPreview={() => void run(() => previewFolder(classicFolder(classic.id)))} />
-        <div className="dss-row-info">
-          <div className="dss-title">{classicName(classic)}</div>
+  if (grid)
+    return (
+      <div className={classes}>
+        <Thumb {...thumb} onPreview={selection ? selection.onToggle : preview} />
+        <div className="dss-lib-info">
+          <div className="dss-title">{itemTitle(item)}</div>
+          <ItemMeta item={item} ctx={ctx} />
         </div>
-        <DialogButton
-          className="dss-row-btn"
-          disabled={busy}
-          onClick={() => void run(() => previewFolder(classicFolder(classic.id)))}
-        >
-          {t('common.preview')}
-        </DialogButton>
-        <DialogButton
-          className="dss-row-btn"
-          disabled={busy}
-          onClick={() => void run(() => useFolder(classicFolder(classic.id), classicName(classic)))}
-        >
-          {t('common.use')}
-        </DialogButton>
-        <DialogButton
-          className="dss-row-btn"
-          disabled={busy}
-          onClick={() => showModal(<ClassicOptionsModal id={classic.id} />)}
-        >
-          {t('common.options')}
-        </DialogButton>
-        <DialogButton
-          className="dss-row-btn dss-danger"
-          disabled={busy}
-          onClick={() => void run(() => uninstallClassic(classic.id))}
-        >
-          {t('common.remove')}
-        </DialogButton>
-      </Focusable>
-      <div className="dss-badges">
-        <Badge kind="classic">{t('type.classic')}</Badge>
-        <Badge kind="ss">{t('lib.badgeSs')}</Badge>
-        {state.classicOptions[classic.id]?.shuffleInclude && <Badge kind="muted">{t('rot.inShuffle')}</Badge>}
+        <Focusable className="dss-lib-actions" flow-children="horizontal">
+          {check}
+          {previewBtn}
+          {more}
+        </Focusable>
       </div>
-    </div>
-  );
-};
+    );
 
-/** Batch actions on the selected library videos. */
-const BatchBar: FC<{
-  selected: Set<string>;
-  shown: string[];
-  onChange: (next: Set<string>) => void;
-  onDone: () => void;
-}> = ({ selected, shown, onChange, onDone }) => {
-  const [busy, run] = useBusy();
-  const ids = [...selected];
-  const none = ids.length === 0;
-  const patch = (p: Parameters<typeof setOptionsMany>[1]) => void run(() => setOptionsMany(ids, p));
   return (
-    <Focusable className="dss-batch" flow-children="horizontal">
-      <span className="dss-batch-count">{t('batch.count', { n: ids.length })}</span>
-      <DialogButton disabled={busy} onClick={() => onChange(new Set(shown))}>
-        {t('batch.all')}
-      </DialogButton>
-      <DialogButton disabled={busy || none} onClick={() => onChange(new Set())}>
-        {t('batch.none')}
-      </DialogButton>
-      <DialogButton disabled={busy || none} onClick={() => patch({ disabled: false })}>
-        {t('batch.enable')}
-      </DialogButton>
-      <DialogButton disabled={busy || none} onClick={() => patch({ disabled: true })}>
-        {t('batch.disable')}
-      </DialogButton>
-      <DialogButton disabled={busy || none} onClick={() => patch({ screensaver: true })}>
-        {t('batch.ssOn')}
-      </DialogButton>
-      <DialogButton disabled={busy || none} onClick={() => patch({ screensaver: false })}>
-        {t('batch.ssOff')}
-      </DialogButton>
-      <DialogButton
-        className="dss-danger"
-        disabled={busy || none}
-        onClick={() =>
-          showModal(
-            <ConfirmModal
-              strTitle={t('batch.removeTitle', { n: ids.length })}
-              strDescription={t('batch.removeDesc')}
-              strOKButtonText={t('common.remove')}
-              onOK={() =>
-                void run(async () => {
-                  await uninstallMany(ids);
-                  onChange(new Set());
-                })
-              }
-            />,
-          )
-        }
-      >
-        {t('common.remove')}
-      </DialogButton>
-      <DialogButton disabled={busy} onClick={onDone}>
-        {t('batch.done')}
-      </DialogButton>
+    <Focusable className={classes} flow-children="horizontal">
+      {check}
+      <Thumb {...thumb} onPreview={selection ? selection.onToggle : preview} />
+      <div className="dss-lib-info">
+        <div className="dss-title">{itemTitle(item)}</div>
+        <ItemMeta item={item} ctx={ctx} />
+      </div>
+      {previewBtn}
+      {more}
     </Focusable>
   );
 };
 
+/** "In use now": the active screensaver and the boot/suspend/throbber videos, each switchable in place. */
+let inUseOpen = true;
+const InUseSection: FC = () => {
+  const [open, setOpen] = useState(inUseOpen);
+  const { options, selected, choose } = useScreensaverChoices();
+  return (
+    <div className="dss-panel dss-inuse">
+      <Focusable>
+        <DialogButton
+          className="dss-inuse-head"
+          onClick={() => {
+            inUseOpen = !open;
+            setOpen(!open);
+          }}
+        >
+          {open ? <FaChevronDown /> : <FaChevronRight />} {t('lib.inUseNow')}
+        </DialogButton>
+      </Focusable>
+      {open && (
+        <Focusable style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
+          <DropdownItem
+            label={t('qam.screensaver')}
+            rgOptions={options}
+            selectedOption={selected}
+            onChange={(o) => void choose(o.data as string)}
+          />
+          {MOVIE_SLOTS.map((slot) => (
+            <MovieSlotRow key={slot} slot={slot} />
+          ))}
+        </Focusable>
+      )}
+    </div>
+  );
+};
+
+/** Batch actions, built from what is selected: only what applies, with how many it affects. */
+const BatchBar: FC<{
+  selected: LibItem[];
+  all: LibItem[];
+  ctx: LibContext;
+  onSelectAll: () => void;
+  onClear: () => void;
+  onDone: () => void;
+}> = ({ selected, all, ctx, onSelectAll, onClear, onDone }) => {
+  const [busy, run] = useBusy();
+  const entries = selected.filter((i): i is { kind: 'entry'; entry: InstalledEntry } => i.kind === 'entry');
+  const classics = selected.filter((i): i is { kind: 'classic'; classic: Classic } => i.kind === 'classic');
+  const entryIds = entries.map((i) => i.entry.id);
+  const classicIds = classics.map((i) => i.classic.id);
+
+  // summary by kind: "3 Boot · 2 GIFs · 1 OLED"
+  const kinds = new Map<ItemKind, number>();
+  selected.forEach((i) => kinds.set(itemKind(i), (kinds.get(itemKind(i)) ?? 0) + 1));
+  const summary = [...kinds.entries()].map(([k, n]) => `${n} ${KIND_LABEL(k)}`).join(' · ');
+
+  const toEnable = selected.filter((i) => itemDisabled(i, ctx));
+  const toDisable = selected.filter((i) => !itemDisabled(i, ctx));
+  const ssCandidates = entries.filter((i) => !i.entry.disabled);
+  const ssOn = ssCandidates.filter((i) => !i.entry.screensaver);
+  const ssOff = ssCandidates.filter((i) => i.entry.screensaver);
+  const screensavers = selected.filter((i) => itemIsScreensaver(i, ctx));
+  const rotOn = screensavers.filter((i) => !itemInRotation(i, ctx));
+  const rotOff = screensavers.filter((i) => itemInRotation(i, ctx));
+  const bootish = entries.filter((i) => isBootish(i) && !i.entry.disabled);
+  const drawOn = bootish.filter((i) => i.entry.shuffleExclude);
+  const drawOff = bootish.filter((i) => !i.entry.shuffleExclude);
+  const fitTargets = entries.filter((i) => i.entry.screensaver && !i.entry.disabled);
+  const rotKeys = (list: LibItem[]) => list.map((i) => (i.kind === 'entry' ? i.entry.id : `classic:${i.classic.id}`));
+
+  const setDisabled = (list: LibItem[], value: boolean) =>
+    void run(async () => {
+      const e = list.filter((i) => i.kind === 'entry').map((i) => (i as { entry: InstalledEntry }).entry.id);
+      const c = list.filter((i) => i.kind === 'classic').map((i) => (i as { classic: Classic }).classic.id);
+      if (e.length) await setOptionsMany(e, { disabled: value });
+      if (c.length) await setClassicOptionsMany(c, { disabled: value });
+    });
+
+  const remove = () => {
+    const inUse = selected.flatMap((i) => itemUses(i, ctx).map((u) => `${itemTitle(i)} (${u})`));
+    showModal(
+      <ConfirmModal
+        strTitle={t('batch.removeItems', { n: selected.length })}
+        strDescription={[
+          selected.slice(0, CONFIRM_LIST).map(itemTitle).join(', ') +
+            (selected.length > CONFIRM_LIST ? ` ${t('batch.andMore', { n: selected.length - CONFIRM_LIST })}` : '') +
+            '.',
+          inUse.length ? t('batch.removeInUse', { list: inUse.join(', ') }) : '',
+          t('batch.removeDesc'),
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        strOKButtonText={t('common.remove')}
+        onOK={() =>
+          void run(async () => {
+            if (entryIds.length) await uninstallMany(entryIds);
+            if (classicIds.length) await uninstallClassics(classicIds);
+            onClear();
+          })
+        }
+      />,
+    );
+  };
+
+  const n = (label: string, list: unknown[]) => `${label} (${list.length})`;
+  /** Changes to many items are confirmed first, listing what changes and where. */
+  const confirm = (label: string, list: LibItem[], fn: () => void) => {
+    if (list.length < CONFIRM_FROM) return fn();
+    const names = list.slice(0, CONFIRM_LIST).map(itemTitle);
+    const rest = list.length - names.length;
+    showModal(
+      <ConfirmModal
+        strTitle={t('batch.confirmTitle', { action: label, n: list.length })}
+        strDescription={`${names.join(', ')}${rest > 0 ? ` ${t('batch.andMore', { n: rest })}` : ''}`}
+        strOKButtonText={t('batch.apply')}
+        onOK={fn}
+      />,
+    );
+  };
+  const btn = (key: string, label: string, list: LibItem[], fn: () => void, extra = '') =>
+    list.length > 0 && (
+      <DialogButton key={key} className={extra} disabled={busy} onClick={() => confirm(label, list, fn)}>
+        {n(label, list)}
+      </DialogButton>
+    );
+
+  return (
+    <div className="dss-batch">
+      <Focusable className="dss-batch-line" flow-children="horizontal">
+        <span className="dss-batch-count">
+          {selected.length ? `${t('batch.count', { n: selected.length })}: ${summary}` : t('batch.noneSelected')}
+        </span>
+        <DialogButton disabled={busy || selected.length === all.length} onClick={onSelectAll}>
+          {t('batch.allN', { n: all.length })}
+        </DialogButton>
+        <DialogButton disabled={busy || !selected.length} onClick={onClear}>
+          {t('batch.clear')}
+        </DialogButton>
+        <DialogButton disabled={busy} onClick={onDone}>
+          {t('batch.done')}
+        </DialogButton>
+      </Focusable>
+      {selected.length > 0 && (
+        <Focusable className="dss-batch-line" flow-children="horizontal">
+          {btn('en', t('batch.enable'), toEnable, () => setDisabled(toEnable, false))}
+          {btn('dis', t('batch.disable'), toDisable, () => setDisabled(toDisable, true))}
+          {btn('sson', t('batch.ssOn'), ssOn, () => void run(() => setOptionsMany(ssOn.map((i) => i.entry.id), { screensaver: true })))}
+          {btn('ssoff', t('batch.ssOff'), ssOff, () => void run(() => setOptionsMany(ssOff.map((i) => i.entry.id), { screensaver: false })))}
+          {btn('roton', t('batch.rotOn'), rotOn, () => void run(() => setMany(rotKeys(rotOn), { shuffleInclude: true })))}
+          {btn('rotoff', t('batch.rotOff'), rotOff, () => void run(() => setMany(rotKeys(rotOff), { shuffleInclude: false })))}
+          {btn('drawon', t('batch.drawOn'), drawOn, () => void run(() => setMany(rotKeys(drawOn), { shuffleExclude: false })))}
+          {btn('drawoff', t('batch.drawOff'), drawOff, () => void run(() => setMany(rotKeys(drawOff), { shuffleExclude: true })))}
+          {fitTargets.length > 0 && (
+            <div className="dss-batch-drop">
+              <Dropdown
+                rgOptions={BATCH_FITS.map((f) => ({ data: f, label: t(`fit.${f}`) }))}
+                selectedOption={null}
+                strDefaultLabel={n(t('batch.fit'), fitTargets)}
+                disabled={busy}
+                onChange={(o) =>
+                  confirm(`${t('batch.fit')} ${t(`fit.${o.data as Fit}`)}`, fitTargets, () =>
+                    void run(() => setOptionsMany(fitTargets.map((i) => i.entry.id), { fit: o.data as Fit })),
+                  )
+                }
+              />
+            </div>
+          )}
+          {bootish.length > 0 && (
+            <div className="dss-batch-drop">
+              <Dropdown
+                rgOptions={[
+                  { data: '', label: t('opts.movieFitDefault', { fit: t(`movies.fit.${useBackendStateFit()}`) }) },
+                  ...MOVIE_FITS.map((f) => ({ data: f, label: t(`movies.fit.${f}`) })),
+                ]}
+                selectedOption={null}
+                strDefaultLabel={n(t('batch.movieFit'), bootish)}
+                disabled={busy}
+                onChange={(o) =>
+                  confirm(`${t('batch.movieFit')} ${o.data ? t(`movies.fit.${o.data as MovieFit}`) : t('opts.movieFitDefault', { fit: '' })}`, bootish, () =>
+                    void run(async () => {
+                      await setOptionsMany(
+                        bootish.map((i) => i.entry.id),
+                        { movieFit: o.data as MovieFit | '' },
+                      );
+                      toast(t('movies.fitApplied'));
+                    }),
+                  )
+                }
+              />
+            </div>
+          )}
+          {selected.length > 0 && (
+            <DialogButton className="dss-danger" disabled={busy} onClick={remove}>
+              {n(t('common.remove'), selected)}
+            </DialogButton>
+          )}
+        </Focusable>
+      )}
+    </div>
+  );
+};
+
+const BATCH_FITS: Fit[] = ['cover', 'contain', 'fill', 'none'];
+/** Batch actions on this many items or more ask first. */
+const CONFIRM_FROM = 3;
+const CONFIRM_LIST = 12;
+/** The global boot/suspend size, for the "Default (…)" label. */
+const useBackendStateFit = () => getState().movies.fit ?? 'original';
+
+let libView: 'list' | 'grid' = 'list';
+let libSort: LibSort = 'inuse';
+
 const LibraryTab: FC = () => {
   const state = useBackendState();
-  const [busy, run] = useBusy();
+  const settings = useClientSettings();
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
+  const [tag, setTag] = useState('');
+  const [sort, setSort] = useState<LibSort>(libSort);
+  const [view, setView] = useState<'list' | 'grid'>(libView);
   const [count, setCount] = useState(LIBRARY_PAGE);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
 
-  useEffect(() => setCount(LIBRARY_PAGE), [filter, query]);
+  const ctx: LibContext = {
+    activeFolder: folderFromId(settings?.screensaverCurrentId ?? '') || undefined,
+    classicOptions: state.classicOptions,
+  };
+
+  // a new filter, search or tag starts a new selection: nothing hidden gets acted on
+  useEffect(() => {
+    setCount(LIBRARY_PAGE);
+    setSelected(new Set());
+  }, [filter, query, tag]);
 
   const all: LibItem[] = useMemo(
     () => [
@@ -815,28 +1061,42 @@ const LibraryTab: FC = () => {
     [state.installed, state.classics],
   );
 
-  const items = useMemo(
-    () =>
-      all
-        .filter((i) => matchesFilter(i, filter) && matchesQuery(i, query))
-        .sort(
-          (a, b) =>
-            Number(itemIsScreensaver(b)) - Number(itemIsScreensaver(a)) || itemTitle(a).localeCompare(itemTitle(b)),
-        ),
-    [all, filter, query],
-  );
+  const items = useMemo(() => {
+    const list = all.filter(
+      (i) => matchesFilter(i, filter, ctx) && matchesQuery(i, query, ctx) && (!tag || itemTags(i).includes(tag)),
+    );
+    const byName = (a: LibItem, b: LibItem) => itemTitle(a).localeCompare(itemTitle(b));
+    const added = (i: LibItem) => (i.kind === 'entry' ? i.entry.addedAt ?? 0 : 0);
+    return list.sort((a, b) =>
+      sort === 'name'
+        ? byName(a, b)
+        : sort === 'recent'
+          ? added(b) - added(a) || byName(a, b)
+          : Number(itemUses(b, ctx).length > 0) - Number(itemUses(a, ctx).length > 0) ||
+            Number(itemIsScreensaver(b, ctx)) - Number(itemIsScreensaver(a, ctx)) ||
+            byName(a, b),
+    );
+    // ctx changes with the active screensaver and the classic options
+  }, [all, filter, query, tag, sort, ctx.activeFolder, state.classicOptions]);
 
-  // most used tags, as one-tap search shortcuts
-  const topTags = useMemo(() => {
+  const tags = useMemo(() => {
     const counts = new Map<string, number>();
-    all.forEach((i) => itemTags(i).forEach((tag) => counts.set(tag, (counts.get(tag) ?? 0) + 1)));
+    all.forEach((i) => itemTags(i).forEach((tg) => counts.set(tg, (counts.get(tg) ?? 0) + 1)));
     return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, TOP_TAGS);
   }, [all]);
 
-  const toggleTag = (tag: string) => {
-    const words = query.trim().split(/\s+/).filter(Boolean);
-    setQuery(words.includes(tag) ? words.filter((w) => w !== tag).join(' ') : [...words, tag].join(' '));
+  const toggle = (key: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const stopSelecting = () => {
+    setSelecting(false);
+    setSelected(new Set());
   };
+  const selectedItems = items.filter((i) => selected.has(itemKey(i)));
 
   return (
     <div>
@@ -848,73 +1108,81 @@ const LibraryTab: FC = () => {
           {t('import.button')}
         </DialogButton>
       </Toolbar>
-      <Hint>{t('lib.searchHint')}</Hint>
+      <InUseSection />
       <Focusable className="dss-chips" flow-children="horizontal">
-        {FILTERS.map((f) => (
-          <DialogButton key={f} className={f === filter ? 'dss-chip dss-chip-on' : 'dss-chip'} onClick={() => setFilter(f)}>
-            {t(`filter.${f}`)} ({all.filter((i) => matchesFilter(i, f)).length})
-          </DialogButton>
-        ))}
-      </Focusable>
-      {topTags.length > 0 && (
-        <Focusable className="dss-chips" flow-children="horizontal">
-          {topTags.map(([tag, n]) => (
-            <DialogButton
-              key={tag}
-              className={query.split(/\s+/).includes(tag) ? 'dss-chip dss-chip-on' : 'dss-chip'}
-              onClick={() => toggleTag(tag)}
-            >
-              #{tag} ({n})
+        {FILTERS.map((f) => {
+          const n = all.filter((i) => matchesFilter(i, f, ctx)).length;
+          if (!n && f !== 'all' && f !== filter) return null;
+          return (
+            <DialogButton key={f} className={f === filter ? 'dss-chip dss-chip-on' : 'dss-chip'} onClick={() => setFilter(f)}>
+              {f === 'oled' ? 'OLED' : t(`filter.${f}`)} ({n})
             </DialogButton>
-          ))}
-        </Focusable>
-      )}
-      {all.length === 0 ? <Hint>{t('lib.empty')}</Hint> : items.length === 0 && <Hint>{t('lib.emptyFilter')}</Hint>}
-      {all.length > 0 && !selecting && (
-        <Focusable style={{ display: 'flex', justifyContent: 'flex-end', margin: '0 0 10px' }}>
-          <DialogButton style={smallButton} onClick={() => setSelecting(true)}>
-            {t('batch.select')}
+          );
+        })}
+      </Focusable>
+      <Focusable className="dss-libbar" flow-children="horizontal">
+        <div className="dss-libbar-drop">
+          <Dropdown
+            rgOptions={LIB_SORTS.map((s) => ({ data: s, label: t(`lib.sort.${s}`) }))}
+            selectedOption={sort}
+            onChange={(o) => {
+              libSort = o.data as LibSort;
+              setSort(libSort);
+            }}
+          />
+        </div>
+        {tags.length > 0 && (
+          <div className="dss-libbar-drop">
+            <Dropdown
+              rgOptions={[
+                { data: '', label: t('lib.tagsAll') },
+                ...tags.map(([tg, n]) => ({ data: tg, label: `#${tg} (${n})` })),
+              ]}
+              selectedOption={tag}
+              onChange={(o) => setTag(o.data as string)}
+            />
+          </div>
+        )}
+        <DialogButton
+          className="dss-icon-btn"
+          onClick={() => {
+            libView = view === 'list' ? 'grid' : 'list';
+            setView(libView);
+          }}
+        >
+          {view === 'list' ? <FaTh /> : <FaThList />} {view === 'list' ? t('lib.viewGrid') : t('lib.viewList')}
+        </DialogButton>
+        {all.length > 0 && !selecting && (
+          <DialogButton className="dss-icon-btn" onClick={() => setSelecting(true)}>
+            <FaCheckSquare /> {t('batch.select')}
           </DialogButton>
-        </Focusable>
-      )}
+        )}
+      </Focusable>
       {selecting && (
         <BatchBar
-          selected={selected}
-          shown={items.filter((i): i is { kind: 'entry'; entry: InstalledEntry } => i.kind === 'entry').map((i) => i.entry.id)}
-          onChange={setSelected}
-          onDone={() => {
-            setSelecting(false);
-            setSelected(new Set());
-          }}
+          selected={selectedItems}
+          all={items}
+          ctx={ctx}
+          onSelectAll={() => setSelected(new Set(items.map(itemKey)))}
+          onClear={() => setSelected(new Set())}
+          onDone={stopSelecting}
         />
       )}
-      <Focusable style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        {items
-          .slice(0, count)
-          .map((i) =>
-            i.kind === 'entry' ? (
-              <LibraryRow
-                key={itemKey(i)}
-                entry={i.entry}
-                selection={
-                  selecting
-                    ? {
-                        selected: selected.has(i.entry.id),
-                        onToggle: () =>
-                          setSelected((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(i.entry.id)) next.delete(i.entry.id);
-                            else next.add(i.entry.id);
-                            return next;
-                          }),
-                      }
-                    : undefined
-                }
-              />
-            ) : (
-              <ClassicLibraryRow key={itemKey(i)} classic={i.classic} />
-            ),
-          )}
+      {all.length === 0 ? <Hint>{t('lib.empty')}</Hint> : items.length === 0 && <Hint>{t('lib.emptyFilter')}</Hint>}
+      <Focusable
+        className={view === 'grid' ? 'dss-lib-grid' : 'dss-lib-list'}
+        onCancelButton={selecting ? () => stopSelecting() : undefined}
+        onCancelActionDescription={selecting ? t('batch.leave') : undefined}
+      >
+        {items.slice(0, count).map((i) => (
+          <LibraryItem
+            key={itemKey(i)}
+            item={i}
+            ctx={ctx}
+            grid={view === 'grid'}
+            selection={selecting ? { selected: selected.has(itemKey(i)), onToggle: () => toggle(itemKey(i)) } : undefined}
+          />
+        ))}
       </Focusable>
       {items.length > count && (
         <Focusable style={{ display: 'flex', justifyContent: 'center', margin: '15px 0' }}>

@@ -515,8 +515,16 @@ def _in_shuffle(video_id):
     )
 
 
+def _classic_disabled(classic_id):
+    return bool(_state["classicOptions"].get(classic_id, {}).get("disabled"))
+
+
 def _classic_in_shuffle(classic_id):
-    return classic_id in _state["classics"] and _state["classicOptions"].get(classic_id, {}).get("shuffleInclude", False)
+    return (
+        classic_id in _state["classics"]
+        and _state["classicOptions"].get(classic_id, {}).get("shuffleInclude", False)
+        and not _classic_disabled(classic_id)
+    )
 
 
 def _sync_shuffle():
@@ -576,7 +584,7 @@ def _write_classic_files(path, classic_id, standalone=True):
     standalone: its own Steam screensaver (not an item of the rotation, which
     times its items itself), so it honours the "end after N minutes" setting."""
     os.makedirs(path, exist_ok=True)
-    options = {k: v for k, v in _state["classicOptions"].get(classic_id, {}).items() if k != "shuffleInclude"}
+    options = {k: v for k, v in _state["classicOptions"].get(classic_id, {}).items() if k not in ("shuffleInclude", "disabled")}
     if not options.get("locale") and _state["locale"]:
         options["locale"] = _state["locale"]
     overlay = classic_id in OLED_ART and bool(options.get("clock"))
@@ -601,7 +609,11 @@ def _write_classic_files(path, classic_id, standalone=True):
 
 
 def _write_classic(classic_id):
-    """Install a generated screensaver as its own Steam screensaver folder."""
+    """Install a generated screensaver as its own Steam screensaver folder
+    (or take it out of Steam's list while it is disabled in the library)."""
+    if _classic_disabled(classic_id):
+        _remove_folder(_classic_folder(classic_id))
+        return
     path = os.path.join(SCREENSAVERS_DIR, _classic_folder(classic_id))
     _write_classic_files(path, classic_id)
     with open(os.path.join(path, MARKER), "w", encoding="utf-8") as f:
@@ -747,6 +759,7 @@ def _add_local_entry(video_id, name, title, kind, extra=None):
         "boomerang": False,
         "screensaver": False,
         "shuffleExclude": False,
+        "addedAt": time.time(),
         **(extra or {}),
     }
     _state["installed"][video_id] = entry
@@ -1196,7 +1209,7 @@ class Plugin:
             if not entry:
                 entry = {k: post.get(k, "") for k in ("id", "title", "author", "thumbnail", "video", "duration", "type", "url")}
                 entry["folder"] = _folder_name(entry["title"] or video_id, video_id)
-                entry.update(boomerang=False, screensaver=False, shuffleExclude=False)
+                entry.update(boomerang=False, screensaver=False, shuffleExclude=False, addedAt=time.time())
                 _state["installed"][video_id] = entry
             entry["videoDuration"] = _video_duration(dest)
             _sync_entry(video_id)
@@ -1592,6 +1605,9 @@ class Plugin:
             if "shuffleInclude" in patch:
                 options["shuffleInclude"] = bool(patch["shuffleInclude"])
             look = False
+            if "disabled" in patch:
+                options["disabled"] = bool(patch["disabled"])
+                look = True  # rewrites (or removes) its Steam folder
             for key in ("color", "color2", "clockColor"):
                 if key in patch:
                     color = str(patch[key] or "")
@@ -1674,16 +1690,30 @@ class Plugin:
             return {"ok": False, "error": str(err)}
 
     async def uninstall_classic(self, classic_id: str):
+        return await self.uninstall_classics([classic_id])
+
+    async def uninstall_classics(self, classic_ids: list):
+        """Remove several generated screensavers at once (batch selection)."""
         try:
-            if classic_id in _state["classics"]:
-                _state["classics"].remove(classic_id)
-                _remove_folder(_classic_folder(classic_id))
+            for classic_id in classic_ids:
+                if classic_id in _state["classics"]:
+                    _state["classics"].remove(classic_id)
+                    _remove_folder(_classic_folder(classic_id))
             _sync_shuffle()
             _save_state()
             return {"ok": True, "state": _public_state()}
         except Exception as err:  # pylint: disable=broad-except
             decky.logger.exception("uninstall_classic failed")
             return {"ok": False, "error": str(err)}
+
+    async def set_classic_options_many(self, classic_ids: list, patch: dict):
+        """The same option patch on several generated screensavers (batch selection)."""
+        result = {"ok": False, "error": "nothing to change"}
+        for classic_id in classic_ids:
+            result = await self.set_classic_options(classic_id, patch)
+            if not result.get("ok"):
+                return result
+        return result
 
     async def set_giphy_key(self, key: str):
         _state["giphyKey"] = (key or "").strip()

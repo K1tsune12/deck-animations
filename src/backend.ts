@@ -168,6 +168,8 @@ export const setDevice = (choice: DeviceSetting) => mutate('set_device', choice)
 export const setMany = (ids: string[], patch: { shuffleInclude?: boolean; shuffleExclude?: boolean }) =>
   mutate('set_many', ids, patch);
 export const uninstallClassic = (id: string) => mutate('uninstall_classic', id);
+export const uninstallClassics = (ids: string[]) => mutate('uninstall_classics', ids);
+export const setClassicOptionsMany = (ids: string[], patch: ClassicOptions) => mutate('set_classic_options_many', ids, patch);
 export const setGiphyKey = (key: string) => mutate('set_giphy_key', key);
 export const installGif = (gif: Pick<GifResult, 'id' | 'title' | 'thumbnail' | 'url' | 'tags'>) => mutate('install_gif', gif);
 

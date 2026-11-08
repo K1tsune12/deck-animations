@@ -27,12 +27,49 @@ export const CSS = `
 .dss-danger { background: #c03030 !important; color: #fff !important; }
 /* the red background hid Steam's focus highlight: show it on top */
 .dss-danger.gpfocus, .dss-danger:focus, .dss-danger:hover { background: #ff5252 !important; box-shadow: inset 0 0 0 2px #fff, 0 0 0 2px #fff !important; }
-.dss-batch { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 12px; padding: 8px; background: #0008; border-radius: 4px; }
-.dss-batch .DialogButton { min-width: 0 !important; width: auto !important; height: auto !important; padding: 6px 12px !important; font-size: 13px !important; line-height: 18px !important; }
-.dss-batch-count { color: #9aa; font-size: 13px; margin-right: 6px; }
-.dss-row.dss-selected { box-shadow: inset 0 0 0 2px #59bf40; background: #59bf4022; }
-.dss-row .dss-check { display: flex !important; align-items: center; justify-content: center; padding: 6px 10px !important; }
-.dss-row .dss-check-on { background: #59bf40 !important; color: #fff !important; }
+.dss-batch { margin: 8px 0 12px; padding: 8px; background: #0008; border-radius: 4px; box-shadow: inset 0 0 0 1px #59bf4066; }
+.dss-batch-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.dss-batch-line + .dss-batch-line { margin-top: 8px; padding-top: 8px; border-top: 1px solid #ffffff14; }
+.dss-batch .DialogButton, .dss-libbar .DialogButton, .dss-lib .DialogButton {
+  min-width: 0 !important; width: auto !important; height: auto !important; flex: none;
+  padding: 6px 12px !important; font-size: 13px !important; line-height: 18px !important; white-space: nowrap;
+}
+.dss-batch-count { color: #cfd6df; font-size: 13px; margin-right: auto; }
+.dss-batch-drop, .dss-libbar-drop { min-width: 190px; }
+.dss-batch-drop .DialogDropDown, .dss-libbar-drop .DialogDropDown { padding: 4px 10px !important; font-size: 13px !important; min-height: 0 !important; }
+
+/* library: quiet rows, two buttons each, state as small icons */
+.dss-libbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; }
+.dss-icon-btn { display: flex !important; align-items: center; gap: 6px; }
+.dss-lib-list { display: flex; flex-direction: column; gap: 6px; }
+.dss-lib-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.dss-lib { background: #0008; border-radius: 4px; }
+.dss-lib-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; }
+.dss-lib-row img, .dss-lib-row .dss-row-placeholder { width: 96px; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 3px; display: block; }
+.dss-lib-card { display: flex; flex-direction: column; overflow: hidden; }
+.dss-lib-card img, .dss-lib-card .dss-row-placeholder { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; }
+.dss-lib-card .dss-thumb-btn { border-radius: 0; }
+.dss-lib-card .dss-lib-info { padding: 6px 8px 0; }
+.dss-lib-actions { display: flex; gap: 6px; padding: 6px 8px 8px; justify-content: flex-end; }
+.dss-lib-info { flex: 1; min-width: 0; }
+.dss-lib .dss-more { display: flex !important; align-items: center; padding: 6px 10px !important; }
+.dss-lib.dss-selected { box-shadow: inset 0 0 0 2px #59bf40; background: #59bf4022; }
+.dss-lib.dss-off { opacity: 0.55; }
+.dss-lib .dss-check { display: flex !important; align-items: center; justify-content: center; padding: 6px 10px !important; }
+.dss-lib .dss-check-on { background: #59bf40 !important; color: #fff !important; }
+.dss-meta-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 3px; font-size: 12px; color: #9aa; }
+.dss-kind { font-weight: bold; text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 3px; background: #ffffff14; color: #cfd6df; }
+.dss-kind-boot { color: #7fb0ff; }
+.dss-kind-suspend { color: #b49cff; }
+.dss-kind-gif { color: #f0bd4f; }
+.dss-kind-custom { color: #4fd1c5; }
+.dss-kind-classic { color: #ff9a6b; }
+.dss-kind-oled, .dss-kind-clock { color: #e6e6e6; background: #000; box-shadow: inset 0 0 0 1px #ffffff33; }
+.dss-st { display: inline-flex; align-items: center; gap: 4px; color: #8b97a3; }
+.dss-st-use { color: #7be06a; font-weight: bold; }
+.dss-st-off { color: #ff8a80; }
+.dss-inuse { margin: 0 0 12px; }
+.dss-inuse-head { display: flex !important; align-items: center; gap: 8px; width: 100% !important; justify-content: flex-start !important; background: none !important; padding: 2px 4px !important; font-weight: bold; }
 /* Steam slides a tab in (translateX 40%) while it also jumps the new tab to its
    last focused row: the two motions together look torn. Keep the fade only. */
 .dss-root :has(> * > ._TabContentsScroll) { transform: none !important; }

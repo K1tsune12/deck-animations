@@ -104,7 +104,7 @@ function plannedEndMs(): number | null {
 
   if (folder === shuffleFolder) {
     const videos = installed.filter((e) => e.screensaver && !e.disabled && e.shuffleInclude !== false);
-    const pageCount = classics.filter((c) => classicOptions[c]?.shuffleInclude).length;
+    const pageCount = classics.filter((c) => classicOptions[c]?.shuffleInclude && !classicOptions[c]?.disabled).length;
     if (!videos.length && !pageCount) return null;
     const one = videos.length + pageCount === 1;
     const total =
