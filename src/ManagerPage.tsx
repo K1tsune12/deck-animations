@@ -52,9 +52,11 @@ import {
   setMovieOptions,
   setShuffle,
   setOptions,
+  setOptionsMany,
   shuffleMovies,
   uninstall,
   uninstallClassic,
+  uninstallMany,
   useBackendState,
 } from './backend';
 import { AnimationChangerBanner } from './animationChanger';
@@ -619,13 +621,37 @@ const Thumb: FC<{ src?: string; art?: string; onPreview: () => void }> = ({ src,
   </Focusable>
 );
 
-const LibraryRow: FC<{ entry: InstalledEntry }> = ({ entry }) => {
+interface Selection {
+  selected: boolean;
+  onToggle: () => void;
+}
+
+const LibraryRow: FC<{ entry: InstalledEntry; selection?: Selection }> = ({ entry, selection }) => {
   const [busy, run] = useBusy();
   const seconds = entry.videoDuration || entry.duration;
   const preview = () => void run(() => previewEntry(entry));
 
+  if (selection) {
+    // batch mode: the whole row is one toggle
+    return (
+      <div className="dss-item" style={entry.disabled ? { opacity: 0.6 } : undefined}>
+        <Focusable className={selection.selected ? 'dss-row dss-selected' : 'dss-row'} flow-children="horizontal">
+          <DialogButton className={selection.selected ? 'dss-row-btn dss-in' : 'dss-row-btn dss-out'} onClick={selection.onToggle}>
+            {selection.selected ? '☑' : '☐'}
+          </DialogButton>
+          <Thumb src={entry.thumbnail} onPreview={selection.onToggle} />
+          <div className="dss-row-info">
+            <div className="dss-title">{entry.title}</div>
+            {seconds ? <div className="dss-sub">{Math.round(seconds * 10) / 10}s</div> : null}
+          </div>
+        </Focusable>
+        <EntryBadges entry={entry} />
+      </div>
+    );
+  }
+
   return (
-    <div className="dss-item">
+    <div className="dss-item" style={entry.disabled ? { opacity: 0.6 } : undefined}>
       <Focusable className="dss-row" flow-children="horizontal">
         <Thumb src={entry.thumbnail} onPreview={preview} />
         <div className="dss-row-info">
@@ -720,12 +746,74 @@ const ClassicLibraryRow: FC<{ classic: Classic }> = ({ classic }) => {
   );
 };
 
+/** Batch actions on the selected library videos. */
+const BatchBar: FC<{
+  selected: Set<string>;
+  shown: string[];
+  onChange: (next: Set<string>) => void;
+  onDone: () => void;
+}> = ({ selected, shown, onChange, onDone }) => {
+  const [busy, run] = useBusy();
+  const ids = [...selected];
+  const none = ids.length === 0;
+  const patch = (p: Parameters<typeof setOptionsMany>[1]) => void run(() => setOptionsMany(ids, p));
+  return (
+    <Focusable className="dss-batch" flow-children="horizontal">
+      <span className="dss-batch-count">{t('batch.count', { n: ids.length })}</span>
+      <DialogButton disabled={busy} onClick={() => onChange(new Set(shown))}>
+        {t('batch.all')}
+      </DialogButton>
+      <DialogButton disabled={busy || none} onClick={() => onChange(new Set())}>
+        {t('batch.none')}
+      </DialogButton>
+      <DialogButton disabled={busy || none} onClick={() => patch({ disabled: false })}>
+        {t('batch.enable')}
+      </DialogButton>
+      <DialogButton disabled={busy || none} onClick={() => patch({ disabled: true })}>
+        {t('batch.disable')}
+      </DialogButton>
+      <DialogButton disabled={busy || none} onClick={() => patch({ screensaver: true })}>
+        {t('batch.ssOn')}
+      </DialogButton>
+      <DialogButton disabled={busy || none} onClick={() => patch({ screensaver: false })}>
+        {t('batch.ssOff')}
+      </DialogButton>
+      <DialogButton
+        className="dss-danger"
+        disabled={busy || none}
+        onClick={() =>
+          showModal(
+            <ConfirmModal
+              strTitle={t('batch.removeTitle', { n: ids.length })}
+              strDescription={t('batch.removeDesc')}
+              strOKButtonText={t('common.remove')}
+              onOK={() =>
+                void run(async () => {
+                  await uninstallMany(ids);
+                  onChange(new Set());
+                })
+              }
+            />,
+          )
+        }
+      >
+        {t('common.remove')}
+      </DialogButton>
+      <DialogButton disabled={busy} onClick={onDone}>
+        {t('batch.done')}
+      </DialogButton>
+    </Focusable>
+  );
+};
+
 const LibraryTab: FC = () => {
   const state = useBackendState();
   const [busy, run] = useBusy();
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
   const [count, setCount] = useState(LIBRARY_PAGE);
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
 
   useEffect(() => setCount(LIBRARY_PAGE), [filter, query]);
 
@@ -792,12 +880,47 @@ const LibraryTab: FC = () => {
         </Focusable>
       )}
       {all.length === 0 ? <Hint>{t('lib.empty')}</Hint> : items.length === 0 && <Hint>{t('lib.emptyFilter')}</Hint>}
+      {all.length > 0 && !selecting && (
+        <Focusable style={{ display: 'flex', justifyContent: 'flex-end', margin: '0 0 10px' }}>
+          <DialogButton style={smallButton} onClick={() => setSelecting(true)}>
+            {t('batch.select')}
+          </DialogButton>
+        </Focusable>
+      )}
+      {selecting && (
+        <BatchBar
+          selected={selected}
+          shown={items.filter((i): i is { kind: 'entry'; entry: InstalledEntry } => i.kind === 'entry').map((i) => i.entry.id)}
+          onChange={setSelected}
+          onDone={() => {
+            setSelecting(false);
+            setSelected(new Set());
+          }}
+        />
+      )}
       <Focusable style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {items
           .slice(0, count)
           .map((i) =>
             i.kind === 'entry' ? (
-              <LibraryRow key={itemKey(i)} entry={i.entry} />
+              <LibraryRow
+                key={itemKey(i)}
+                entry={i.entry}
+                selection={
+                  selecting
+                    ? {
+                        selected: selected.has(i.entry.id),
+                        onToggle: () =>
+                          setSelected((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(i.entry.id)) next.delete(i.entry.id);
+                            else next.add(i.entry.id);
+                            return next;
+                          }),
+                      }
+                    : undefined
+                }
+              />
             ) : (
               <ClassicLibraryRow key={itemKey(i)} classic={i.classic} />
             ),
@@ -1256,11 +1379,18 @@ export const ManagerPage: FC = () => {
     const root = rootRef.current;
     const doc = root?.ownerDocument;
     if (!root || !doc) return;
-    const onTouch = (e: TouchEvent) => {
+    // Steam keeps the gamepad-focused element scrolled into view: with a row
+    // focused far down the list, touch or wheel scrolling snaps right back to
+    // it. Dropping the focus while the pointer is used lets the page scroll.
+    const release = (e: Event) => {
       if (root.contains(e.target as Node)) (doc.activeElement as HTMLElement | null)?.blur?.();
     };
-    doc.addEventListener('touchstart', onTouch, { capture: true, passive: true });
-    return () => doc.removeEventListener('touchstart', onTouch, { capture: true });
+    doc.addEventListener('touchstart', release, { capture: true, passive: true });
+    doc.addEventListener('wheel', release, { capture: true, passive: true });
+    return () => {
+      doc.removeEventListener('touchstart', release, { capture: true });
+      doc.removeEventListener('wheel', release, { capture: true });
+    };
   }, []);
 
   const libraryCount = state.installed.length + state.classics.length;
@@ -1274,6 +1404,12 @@ export const ManagerPage: FC = () => {
       <Tabs
         activeTab={tab}
         onShowTab={(id: string) => {
+          // a row focused far down the old tab makes the slide animation split
+          // (header one way, content the other): drop it and start at the top
+          (document.activeElement as HTMLElement | null)?.blur?.();
+          rootRef.current?.querySelectorAll<HTMLElement>('*').forEach((el) => {
+            if (el.scrollTop > 0) el.scrollTop = 0;
+          });
           setTab(id as TabId);
           requestedTab = id as TabId;
         }}

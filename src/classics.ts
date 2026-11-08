@@ -18,6 +18,18 @@ export interface Classic {
   colors?: [string, string];
 }
 
+/** Card art of a digital clock: the time in a gradient of the two colours, the date below. */
+function clockArt(c1: string, c2: string): string {
+  const svg =
+    `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 70'>` +
+    `<defs><linearGradient id='g' x1='0' x2='1'><stop offset='0' stop-color='${c1}'/><stop offset='0.5' stop-color='${c2}'/><stop offset='1' stop-color='${c1}'/></linearGradient></defs>` +
+    `<rect width='160' height='70' fill='#000'/>` +
+    `<text x='80' y='46' text-anchor='middle' font-family='sans-serif' font-weight='200' font-size='36' fill='url(#g)' letter-spacing='-1'>21:47</text>` +
+    `<text x='80' y='61' text-anchor='middle' font-family='sans-serif' font-size='7' fill='${c2}' opacity='0.75' letter-spacing='0.5'>SÁBADO, 8 DE NOVEMBRO</text>` +
+    `</svg>`;
+  return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}") center / cover no-repeat, #000`;
+}
+
 export const CLASSICS: Classic[] = [
   {
     id: 'polygons',
@@ -47,7 +59,7 @@ export const CLASSICS: Classic[] = [
     id: 'clock-digital',
     clock: true,
     colors: ['#ffffff', '#ffffff'],
-    art: 'radial-gradient(ellipse 30% 18% at 50% 46%, #fff3 0%, transparent 100%), #000',
+    art: clockArt('#fff', '#fff'),
   },
   {
     id: 'clock-analog',
@@ -65,7 +77,7 @@ export const CLASSICS: Classic[] = [
     id: 'clock-aurora',
     clock: true,
     colors: ['#a64dff', '#33e6ff'],
-    art: 'radial-gradient(ellipse 35% 20% at 40% 48%, #a64dff88 0%, transparent 100%), radial-gradient(ellipse 30% 18% at 62% 52%, #33e6ff88 0%, transparent 100%), #000',
+    art: clockArt('#a64dff', '#33e6ff'),
   },
   {
     id: 'oled-fireflies',

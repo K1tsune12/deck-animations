@@ -2,11 +2,11 @@ import { toaster } from '@decky/api';
 import { ButtonItem, DropdownItem, PanelSection, PanelSectionRow, SliderField, ToggleField } from '@decky/ui';
 import { FC, useEffect, useRef, useState } from 'react';
 
-import { StorageInfo, clearCache, getStorage, setDevice, setPlayback, setShuffle, useBackendState } from './backend';
+import { StorageInfo, clearCache, getStorage, setDevice, setLocale, setPlayback, setShuffle, useBackendState } from './backend';
 import { DeviceSetting } from './types';
 import { AnimationChangerSection } from './animationChanger';
 import { getClientSettings, useClientSettings } from './clientSettings';
-import { LANGUAGE_NAMES, LangSetting, getLangSetting, setLangSetting, t, useLanguage } from './i18n';
+import { LANGUAGE_NAMES, LangSetting, getLangSetting, getLocale, setLangSetting, t, useLanguage } from './i18n';
 import {
   IDLE_CHOICES,
   SLIDESHOW_ID,
@@ -367,7 +367,7 @@ export const SettingsPanel: FC = () => {
             selectedOption={lang}
             onChange={(o) => {
               setLang(o.data);
-              void setLangSetting(o.data);
+              void setLangSetting(o.data).then(() => setLocale(getLocale()));
             }}
           />
         </PanelSectionRow>

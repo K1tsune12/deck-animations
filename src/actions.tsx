@@ -20,6 +20,7 @@ import {
 import { CLASSICS, classicFolder, classicName, classicPrefix } from './classics';
 import { getClientSettings, useClientSettings } from './clientSettings';
 import { getLocale, t, useLanguage } from './i18n';
+import { log } from './debug';
 import { setPreviewing } from './screenOff';
 import {
   BOUNCING_LOGO_ID,
@@ -86,6 +87,7 @@ export async function previewFolder(folder: string, onEnd?: () => void): Promise
     done = true;
     previewRunning = false;
     stop();
+    log('preview: finish, restoring', previous, 'started', started);
     if (previous) setActiveScreensaver(previous);
     onEnd?.();
     // the "inactive" notification may still be on its way to the watcher
@@ -97,10 +99,26 @@ export async function previewFolder(folder: string, onEnd?: () => void): Promise
   });
   // force only once Steam reports the preview folder as the active screensaver,
   // otherwise the previous one (the rotation, say) is what comes up
-  const t0 = Date.now();
-  while (folderFromId(getClientSettings()?.screensaverCurrentId ?? '') !== folder && Date.now() - t0 < PREVIEW_SETTLE_MS) {
-    await new Promise((r) => setTimeout(r, 50));
+  const isActive = () => folderFromId(getClientSettings()?.screensaverCurrentId ?? '') === folder;
+  const settle = async () => {
+    const t0 = Date.now();
+    while (!isActive() && Date.now() - t0 < PREVIEW_SETTLE_MS) await new Promise((r) => setTimeout(r, 50));
+    return isActive();
+  };
+  log('preview', folder, 'previous', previous);
+  let ok = await settle();
+  if (!ok) {
+    // a folder written a moment ago may not be in Steam's list yet: one more try
+    log('preview: not active after settle, retrying activate');
+    await activateFolder(folder);
+    ok = await settle();
   }
+  if (!ok) {
+    log('preview: giving up, active is', getClientSettings()?.screensaverCurrentId);
+    finish();
+    throw new Error(t('toast.previewNotReady'));
+  }
+  log('preview: forcing');
   void previewScreensaver();
   // never leave the preview selected if it somehow didn't start
   setTimeout(() => {

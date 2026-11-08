@@ -155,6 +155,8 @@ _state = {
     "movies": {"boot": "", "suspend": "", "throbber": "", "shuffleOnBoot": False, "randomizeEveryMin": 0, "lastShuffle": 0, "fit": "original"},
     "importedAnimationChanger": False,
     "lastBootId": "",
+    # the UI language (e.g. "pt-BR"): the clocks' date line follows it
+    "locale": "",
 }
 _repo = {"fetched_at": 0, "posts": []}
 
@@ -575,6 +577,8 @@ def _write_classic_files(path, classic_id, standalone=True):
     times its items itself), so it honours the "end after N minutes" setting."""
     os.makedirs(path, exist_ok=True)
     options = {k: v for k, v in _state["classicOptions"].get(classic_id, {}).items() if k != "shuffleInclude"}
+    if not options.get("locale") and _state["locale"]:
+        options["locale"] = _state["locale"]
     overlay = classic_id in OLED_ART and bool(options.get("clock"))
     clock = classic_id in CLOCKS or overlay
     shared = ["common.css", "common.js"]
@@ -690,6 +694,36 @@ async def _fitted_movie(video_id, fit):
     )
     _own_tree(MOVIES_CACHE)
     return dest
+
+
+def _patch_entry(video_id, patch):
+    """Apply per-video options to one entry and resync its screensaver folder."""
+    entry = _state["installed"][video_id]
+    for key in ("screensaver", "boomerang", "shuffleExclude", "shuffleInclude", "disabled"):
+        if key in patch:
+            entry[key] = bool(patch[key])
+    if patch.get("fit") in FITS:
+        entry["fit"] = patch["fit"]
+    if isinstance(patch.get("tags"), list):
+        entry["tags"] = _clean_tags(patch["tags"])
+    # display name only: the Steam folder keeps its name so the active
+    # screensaver id doesn't change
+    if isinstance(patch.get("title"), str) and patch["title"].strip():
+        entry["title"] = patch["title"].strip()[:80]
+    _sync_entry(video_id)
+
+
+def _uninstall_entry(video_id):
+    """Drop one library video: its folder, our copy of the file and its boot/suspend slots."""
+    # only our copy/hardlink in VIDEOS_DIR goes; an imported original stays where it was
+    path = _video_path(video_id)
+    entry = _state["installed"].pop(video_id)
+    _remove_folder(entry["folder"])
+    if _ID_RE.match(video_id) and os.path.exists(path):
+        os.remove(path)
+    for slot in MOVIE_FILES:
+        if _state["movies"][slot] == video_id:
+            _state["movies"][slot] = ""
 
 
 def _add_local_entry(video_id, name, title, kind, extra=None):
@@ -979,6 +1013,8 @@ class Plugin:
         _state["classics"] = [c for c in loaded.get("classics", []) if c in CLASSICS]
         _state["classicOptions"] = {k: v for k, v in loaded.get("classicOptions", {}).items() if k in CLASSICS}
         _state["giphyKey"] = loaded.get("giphyKey", "")
+        if _LOCALE_RE.match(str(loaded.get("locale", ""))):
+            _state["locale"] = loaded["locale"]
         _state["movies"].update(loaded.get("movies", {}))
         _state["importedAnimationChanger"] = loaded.get("importedAnimationChanger", False)
         if loaded.get("device") in DEVICE_CHOICES:
@@ -1164,18 +1200,16 @@ class Plugin:
             return {"ok": False, "error": str(err)}
 
     async def uninstall(self, video_id: str):
+        return await self.uninstall_many([video_id])
+
+    async def uninstall_many(self, video_ids: list):
+        """Remove several library videos at once (batch selection)."""
         try:
-            if video_id not in _state["installed"]:
+            ids = [v for v in video_ids if v in _state["installed"]]
+            if not ids:
                 return {"ok": False, "error": "not installed"}
-            # only our copy/hardlink in VIDEOS_DIR goes; an imported original stays where it was
-            path = _video_path(video_id)
-            entry = _state["installed"].pop(video_id)
-            _remove_folder(entry["folder"])
-            if _ID_RE.match(video_id) and os.path.exists(path):
-                os.remove(path)
-            for slot in MOVIE_FILES:
-                if _state["movies"][slot] == video_id:
-                    _state["movies"][slot] = ""
+            for video_id in ids:
+                _uninstall_entry(video_id)
             await _apply_movies()
             _sync_shuffle()
             _save_state()
@@ -1265,27 +1299,21 @@ class Plugin:
 
     async def set_options(self, video_id: str, patch: dict):
         """Per-video options: screensaver (bool, listed in Steam), boomerang (bool),
-        fit ('contain' | 'cover'), shuffleExclude (bool, kept out of boot shuffle),
-        tags (list of str), title (str)."""
+        fit, disabled (bool, out of everything), shuffleExclude (bool, kept out of
+        boot shuffle), tags (list of str), title (str)."""
+        return await self.set_options_many([video_id], patch)
+
+    async def set_options_many(self, video_ids: list, patch: dict):
+        """The same patch on several library videos at once (batch selection)."""
         try:
-            entry = _state["installed"].get(video_id)
-            if not entry:
+            ids = [v for v in video_ids if v in _state["installed"]]
+            if not ids:
                 return {"ok": False, "error": "not installed"}
-            for key in ("screensaver", "boomerang", "shuffleExclude", "shuffleInclude", "disabled"):
-                if key in patch:
-                    entry[key] = bool(patch[key])
+            for video_id in ids:
+                _patch_entry(video_id, patch)
             if "disabled" in patch:
                 # a disabled video leaves the boot/suspend slots it held
                 await _apply_movies()
-            if patch.get("fit") in FITS:
-                entry["fit"] = patch["fit"]
-            if isinstance(patch.get("tags"), list):
-                entry["tags"] = _clean_tags(patch["tags"])
-            # display name only: the Steam folder keeps its name so the active
-            # screensaver id doesn't change
-            if isinstance(patch.get("title"), str) and patch["title"].strip():
-                entry["title"] = patch["title"].strip()[:80]
-            _sync_entry(video_id)
             _sync_shuffle()
             _save_state()
             return {"ok": True, "state": _public_state()}
@@ -1398,6 +1426,23 @@ class Plugin:
                 return {"ok": False, "error": str(err)}
         _save_state()
         return {"ok": True, "state": _public_state()}
+
+    async def set_locale(self, locale: str):
+        """The UI language, so clocks installed without their own locale show the date in it."""
+        try:
+            locale = str(locale or "")
+            if locale and not _LOCALE_RE.match(locale):
+                return {"ok": False, "error": "invalid locale"}
+            if locale != _state["locale"]:
+                _state["locale"] = locale
+                for classic_id in _state["classics"]:
+                    _write_classic(classic_id)
+                _sync_shuffle()
+                _save_state()
+            return {"ok": True}
+        except Exception as err:  # pylint: disable=broad-except
+            decky.logger.exception("set_locale failed")
+            return {"ok": False, "error": str(err)}
 
     async def get_ac_backups(self):
         try:

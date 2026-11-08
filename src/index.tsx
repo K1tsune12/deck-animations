@@ -14,10 +14,12 @@ import { useEffect } from 'react';
 import { FaFilm, FaPhotoVideo } from 'react-icons/fa';
 
 import { fitsSlot, useScreensaverChoices } from './actions';
-import { refreshState, setBoomerang, setMovie, shuffleMovies, useBackendState } from './backend';
+import { refreshState, setBoomerang, setLocale, setMovie, setMovieOptions, shuffleMovies, useBackendState } from './backend';
+
+const MOVIE_FITS: MovieFit[] = ['original', 'contain', 'cover', 'stretch'];
 import { CLASSICS, classicFolder, classicName } from './classics';
 import { startClientSettings, stopClientSettings, useClientSettings } from './clientSettings';
-import { initLanguage, t, useLanguage } from './i18n';
+import { getLocale, initLanguage, t, useLanguage } from './i18n';
 import { MANAGER_ROUTE, ManagerPage, openManager } from './ManagerPage';
 import { setRotation } from './SettingsPanel';
 import { startAutoRandomize, stopAutoRandomize } from './autoRandomize';
@@ -31,7 +33,7 @@ import {
   previewScreensaver,
   setActiveScreensaver,
 } from './steam';
-import { MOVIE_SLOTS } from './types';
+import { MOVIE_SLOTS, MovieFit } from './types';
 
 const FOLDER_PREFIX = 'folder:';
 const DEFAULT_MOVIE = '__steam__';
@@ -101,7 +103,7 @@ function QuickPanel() {
               rgOptions={[
                 { data: DEFAULT_MOVIE, label: t('movies.default') },
                 ...state.installed
-                  .filter((e) => fitsSlot(e, slot))
+                  .filter((e) => fitsSlot(e, slot) && !e.disabled)
                   .sort((a, b) => a.title.localeCompare(b.title))
                   .map((e) => ({ data: e.id, label: e.title })),
               ]}
@@ -110,6 +112,19 @@ function QuickPanel() {
             />
           </PanelSectionRow>
         ))}
+        <PanelSectionRow>
+          <DropdownItem
+            label={t('movies.fitShort')}
+            description={t(state.device.kind === 'tv' ? 'movies.fitDescTv' : 'movies.fitDesc')}
+            rgOptions={MOVIE_FITS.map((f) => ({ data: f, label: t(`movies.fit.${f}`) }))}
+            selectedOption={state.movies.fit ?? 'original'}
+            onChange={(o) =>
+              setMovieOptions({ fit: o.data as MovieFit })
+                .then(() => toast(t('movies.fitApplied')))
+                .catch(fail)
+            }
+          />
+        </PanelSectionRow>
         <PanelSectionRow>
           <ButtonItem
             layout="below"
@@ -148,7 +163,10 @@ function QuickPanel() {
 
 export default definePlugin(() => {
   routerHook.addRoute(MANAGER_ROUTE, ManagerPage);
-  void initLanguage();
+  // the clocks' date line follows the UI language
+  initLanguage()
+    .then(() => setLocale(getLocale()))
+    .catch(() => {});
   startClientSettings();
   refreshState().catch(() => {});
   startScreenOffWatcher();

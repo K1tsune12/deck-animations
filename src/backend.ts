@@ -84,6 +84,10 @@ export const setOptions = (
   >,
 ) => mutate('set_options', id, patch);
 export const setMovie = (slot: MovieSlot, id: string) => mutate('set_movie', slot, id);
+export const setOptionsMany = (ids: string[], patch: Parameters<typeof setOptions>[1]) => mutate('set_options_many', ids, patch);
+export const uninstallMany = (ids: string[]) => mutate('uninstall_many', ids);
+/** The UI language, for the date line of clocks that have no locale of their own. */
+export const setLocale = (locale: string) => call<[string], Result<{}>>('set_locale', locale);
 
 export interface StorageInfo {
   library: Partial<Record<InstalledEntry['type'], { bytes: number; count: number }>>;

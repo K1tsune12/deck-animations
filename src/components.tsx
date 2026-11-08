@@ -25,6 +25,12 @@ export const CSS = `
 .dss-row-placeholder { width: 112px; aspect-ratio: 16 / 10; border-radius: 3px; flex: none; display: flex; align-items: center; justify-content: center; background: #1a1f26; color: #67707b; }
 .dss-row .dss-row-btn { width: auto; min-width: 0; padding: 0 14px; flex: none; }
 .dss-danger { background: #c03030 !important; color: #fff !important; }
+/* the red background hid Steam's focus highlight: show it on top */
+.dss-danger.gpfocus, .dss-danger:focus, .dss-danger:hover { background: #ff5252 !important; box-shadow: inset 0 0 0 2px #fff, 0 0 0 2px #fff !important; }
+.dss-batch { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 12px; padding: 8px; background: #0008; border-radius: 4px; }
+.dss-batch .DialogButton { min-width: 0 !important; width: auto !important; height: auto !important; padding: 6px 12px !important; font-size: 13px !important; line-height: 18px !important; }
+.dss-batch-count { color: #9aa; font-size: 13px; margin-right: 6px; }
+.dss-row.dss-selected { box-shadow: inset 0 0 0 2px #59bf40; }
 .dss-desc { font-size: 12px; color: #9aa; margin: 4px 0 8px; min-height: 3em; }
 .dss-actions { display: flex; gap: 8px; }
 .dss-actions > * { flex: 1; }

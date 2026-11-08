@@ -19,6 +19,7 @@
 
 import { classicFolder } from './classics';
 import { getClientSettings } from './clientSettings';
+import { log } from './debug';
 import { getState, setDisplayPower } from './backend';
 import {
   folderFromId,
@@ -175,6 +176,7 @@ async function setDisplay(on: boolean): Promise<void> {
 
 /** Restart the screensaver as a forced one (only real input ends that kind). */
 function reforce(): void {
+  log('screensaver: reforce');
   const now = Date.now();
   reforces = reforces.filter((t) => now - t < REFORCE_WINDOW_MS);
   if (reforces.length >= REFORCE_MAX) return; // something else keeps ending it: don't fight
@@ -207,6 +209,7 @@ function onResume(): void {
 }
 
 function onActiveChange(active: boolean): void {
+  if (active !== wasActive) log('screensaver', active ? 'active' : 'inactive', { previewing, suspending, currentId });
   if (suspending || (active && justWoke())) {
     if (active && !suspending) void stopScreensaver().catch(() => {});
     wasActive = active;
