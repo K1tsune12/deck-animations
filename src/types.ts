@@ -101,7 +101,30 @@ export interface ClassicOptions {
   /** Brightness in percent (20-100). */
   dim?: number;
   locale?: string;
+  /** Drift to a new spot every minute (default) or stay pinned. */
+  motion?: 'drift' | 'fixed';
+  /** Where a pinned clock sits. */
+  position?: ClockPosition;
+  /** Custom spot, percent of the free space (0 = left/top, 100 = right/bottom). */
+  x?: number;
+  y?: number;
+  /** OLED art only: lay a digital clock over the animation. */
+  clock?: boolean;
 }
+
+export const CLOCK_POSITIONS = [
+  'center',
+  'top-left',
+  'top',
+  'top-right',
+  'left',
+  'right',
+  'bottom-left',
+  'bottom',
+  'bottom-right',
+  'custom',
+] as const;
+export type ClockPosition = (typeof CLOCK_POSITIONS)[number];
 
 export type Fit = 'contain' | 'cover' | 'none';
 

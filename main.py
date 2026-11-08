@@ -8,6 +8,7 @@ folder with the bundled player page; the shuffle folder hardlinks every video
 so it costs no extra disk space.
 """
 
+import asyncio
 import hashlib
 import json
 import os
@@ -45,11 +46,15 @@ CLASSICS = (
     "oled-fireflies", "oled-aurora", "oled-fireworks", "oled-lava", "oled-silk",
 )
 CLOCKS = tuple(c for c in CLASSICS if c.startswith("clock-"))
+# OLED art can lay a digital clock over itself (option "clock"), with the clock options
+OLED_ART = tuple(c for c in CLASSICS if c.startswith("oled-"))
 # clock options: value -> allowed values (None = free-form, validated below)
 _CLOCK_ENUMS = {
     "font": ("sans", "thin", "serif", "mono"),
     "size": ("s", "m", "l", "xl"),
     "hours": ("24", "12"),
+    "motion": ("drift", "fixed"),
+    "position": ("center", "top-left", "top", "top-right", "left", "right", "bottom-left", "bottom", "bottom-right", "custom"),
 }
 _CLOCK_BOOLS = ("seconds", "date")
 _LOCALE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$")
@@ -63,7 +68,7 @@ _CLASSIC_HTML = """<!DOCTYPE html>
     <script src="common.js"></script>
     <script src="config.js"></script>
 {extra}    <script src="main.js" defer></script>
-</head>
+{overlay}</head>
 <body></body>
 </html>
 """
@@ -110,6 +115,10 @@ _MAX_URL_BYTES = 1 << 30
 _COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 _FOLDER_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,50}[a-z0-9])?$")
 _WEBM_MAGIC = b"\x1a\x45\xdf\xa3"  # EBML header
+# Steam's browser on SteamOS and Bazzite decodes VP8, VP9 and AV1 but has no H.264
+# decoder (DECODER_ERROR_NOT_SUPPORTED), so MP4 downloads are converted to WebM
+# when ffmpeg is around (both systems ship it).
+_FFMPEG = shutil.which("ffmpeg") or next((p for p in ("/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg") if os.path.isfile(p)), "")
 
 BACKLIGHT_DIR = "/sys/class/backlight"
 _BL_UNBLANK, _BL_POWERDOWN = "0", "4"  # FB_BLANK_* values for bl_power
@@ -424,6 +433,10 @@ def _write_single(video_id):
     }
     path = _write_player(entry["folder"], config)
     _link_or_copy(_video_path(video_id), os.path.join(path, name))
+    # a video that changed container (GIF mp4 -> webm) leaves its old file behind
+    for stale in os.listdir(path):
+        if stale.startswith("video.") and stale != name:
+            os.remove(os.path.join(path, stale))
     _own_tree(path)
 
 
@@ -550,17 +563,21 @@ def _write_classic_files(path, classic_id, standalone=True):
     standalone: its own Steam screensaver (not an item of the rotation, which
     times its items itself), so it honours the "end after N minutes" setting."""
     os.makedirs(path, exist_ok=True)
+    options = {k: v for k, v in _state["classicOptions"].get(classic_id, {}).items() if k != "shuffleInclude"}
+    overlay = classic_id in OLED_ART and bool(options.get("clock"))
+    clock = classic_id in CLOCKS or overlay
     shared = ["common.css", "common.js"]
-    clock = classic_id in CLOCKS
     if clock:
         shared.append("clock.js")
+    if overlay:
+        shared.append("clock-overlay.js")
     for name in shared:
         shutil.copyfile(os.path.join(_CLASSICS_DIR, name), os.path.join(path, name))
     shutil.copyfile(os.path.join(_CLASSICS_DIR, classic_id, "main.js"), os.path.join(path, "main.js"))
     extra = '    <script src="clock.js"></script>\n' if clock else ""
+    overlay_tag = '    <script src="clock-overlay.js" defer></script>\n' if overlay else ""
     with open(os.path.join(path, "index.html"), "w", encoding="utf-8") as f:
-        f.write(_cache_bust(_CLASSIC_HTML.replace("{extra}", extra)))
-    options = {k: v for k, v in _state["classicOptions"].get(classic_id, {}).items() if k != "shuffleInclude"}
+        f.write(_cache_bust(_CLASSIC_HTML.replace("{extra}", extra).replace("{overlay}", overlay_tag)))
     minutes = _state["playback"].get("pageMinutes", 0)
     if standalone and minutes:
         options["endAfterSec"] = minutes * 60
@@ -590,6 +607,30 @@ async def _download(url, dest, kind):
                         f.write(chunk)
         if _video_kind(tmp) != kind:
             raise RuntimeError(f"not a {kind} file")
+        os.replace(tmp, dest)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+async def _to_webm(src, dest):
+    """Convert a video to VP9 WebM with ffmpeg (a GIF-sized clip takes a second or two)."""
+    tmp = dest + ".part.webm"
+    # Decky is a PyInstaller bundle: it points LD_LIBRARY_PATH at its own (older)
+    # libstdc++, which the system ffmpeg must not inherit.
+    env = {k: v for k, v in os.environ.items() if k not in ("LD_LIBRARY_PATH", "LD_PRELOAD")}
+    if os.environ.get("LD_LIBRARY_PATH_ORIG"):
+        env["LD_LIBRARY_PATH"] = os.environ["LD_LIBRARY_PATH_ORIG"]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            _FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", src,
+            "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "32", "-row-mt", "1", "-cpu-used", "4",
+            "-pix_fmt", "yuv420p", "-an", tmp,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE, env=env,
+        )
+        _, err = await asyncio.wait_for(proc.communicate(), 600)
+        if proc.returncode != 0 or _video_kind(tmp) != "webm":
+            raise RuntimeError(f"ffmpeg failed: {err.decode(errors='replace').strip()[:200]}")
         os.replace(tmp, dest)
     finally:
         if os.path.exists(tmp):
@@ -933,7 +974,36 @@ class Plugin:
             _save_state()
         except Exception:  # pylint: disable=broad-except
             decky.logger.exception("failed to apply boot/suspend videos")
+        self._convert_task = asyncio.get_running_loop().create_task(self._convert_gifs())
         decky.logger.info("Deck Animations backend loaded")
+
+    async def _convert_gifs(self):
+        """GIFs saved as MP4 by versions before 0.14.1 play black (no H.264 in Steam):
+        convert them to WebM in the background, one by one."""
+        if not _FFMPEG:
+            return
+        done = 0
+        for video_id, entry in list(_state["installed"].items()):
+            if entry.get("type") != "gif" or not str(entry.get("file", "")).endswith(".mp4"):
+                continue
+            src = _video_path(video_id)
+            if not os.path.isfile(src):
+                continue
+            dest = os.path.join(VIDEOS_DIR, f"{video_id}.webm")
+            try:
+                await _to_webm(src, dest)
+                os.remove(src)
+                entry["file"] = f"{video_id}.webm"
+                entry["videoDuration"] = _video_duration(dest)
+                _own_tree(VIDEOS_DIR)
+                _sync_entry(video_id)
+                done += 1
+            except Exception:  # pylint: disable=broad-except
+                decky.logger.exception(f"could not convert {video_id} to webm")
+        if done:
+            _sync_shuffle()
+            _save_state()
+            decky.logger.info(f"converted {done} GIF(s) from mp4 to webm")
 
     async def _unload(self):
         if os.path.exists(_DISPLAY_OFF_FLAG):
@@ -1376,7 +1446,14 @@ class Plugin:
                         return {"ok": False, "error": "invalid color"}
                     options[key] = color
                     look = True
-            if classic_id in CLOCKS:
+            if classic_id in OLED_ART and "clock" in patch:
+                options["clock"] = bool(patch["clock"])
+                look = True
+            if classic_id in CLOCKS or classic_id in OLED_ART:
+                for key in ("x", "y"):
+                    if key in patch:
+                        options[key] = max(0, min(100, int(patch[key])))
+                        look = True
                 for key, allowed in _CLOCK_ENUMS.items():
                     if key in patch:
                         if patch[key] not in allowed:
@@ -1501,7 +1578,8 @@ class Plugin:
             return {"ok": False, "error": str(err)}
 
     async def install_gif(self, gif: dict):
-        """Download a GIPHY GIF as MP4 (smaller and smoother than the .gif) and add it."""
+        """Download a GIPHY GIF as MP4 (smaller and smoother than the .gif), convert
+        it to WebM (Steam cannot decode H.264) and add it."""
         try:
             gif_id = str(gif.get("id", ""))
             if not _GIPHY_ID_RE.match(gif_id):
@@ -1510,6 +1588,12 @@ class Plugin:
             if video_id not in _state["installed"]:
                 name = f"{video_id}.mp4"
                 await _download(GIPHY_MP4.format(id=gif_id), os.path.join(VIDEOS_DIR, name), "mp4")
+                if _FFMPEG:
+                    webm = f"{video_id}.webm"
+                    await _to_webm(os.path.join(VIDEOS_DIR, name), os.path.join(VIDEOS_DIR, webm))
+                    os.remove(os.path.join(VIDEOS_DIR, name))
+                    name = webm
+                    _own_tree(VIDEOS_DIR)
                 title = str(gif.get("title") or "GIF").strip()[:80] or "GIF"
                 thumb = str(gif.get("thumbnail") or "")
                 extra = {

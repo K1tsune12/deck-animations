@@ -30,7 +30,7 @@ import {
   previewScreensaver,
   setActiveScreensaver,
 } from './steam';
-import { ClassicOptions, Fit, InstalledEntry, MOVIE_SLOTS, MovieSlot, SLOT_TYPE } from './types';
+import { CLOCK_POSITIONS, ClassicOptions, Fit, InstalledEntry, MOVIE_SLOTS, MovieSlot, SLOT_TYPE } from './types';
 
 const FITS: Fit[] = ['cover', 'contain', 'none'];
 
@@ -275,21 +275,62 @@ export const ClassicOptionsModal: FC<{ id: string; closeModal?: () => void }> = 
         </>
       )}
       {classic.clock && <ClockOptions id={id} />}
+      {classic.oled && !classic.clock && (
+        <>
+          <ToggleField
+            label={t('clockOpts.overlay')}
+            description={t('clockOpts.overlayDesc')}
+            checked={!!state.classicOptions[id]?.clock}
+            disabled={busy}
+            onChange={(v) => void run(() => setClassicOptions(id, { clock: v, locale: getLocale() }))}
+          />
+          {state.classicOptions[id]?.clock && <ClockOptions id={id} />}
+        </>
+      )}
     </ModalRoot>
   );
 };
 
 const CLOCK_FONTS = ['thin', 'sans', 'serif', 'mono'] as const;
 const CLOCK_SIZES = ['s', 'm', 'l', 'xl'] as const;
+const CLOCK_MOTIONS = ['drift', 'fixed'] as const;
 
-/** Look of an OLED clock: font, size, 12/24 h, seconds, date, brightness. */
+/** A debounced 0-100 slider for a clock option. */
+const PercentSlider: FC<{ label: string; description?: string; value: number; min?: number; onCommit: (v: number) => void }> = ({
+  label,
+  description,
+  value,
+  min = 0,
+  onCommit,
+}) => {
+  const [shown, setShown] = useState(value);
+  const timer = useRef<number>();
+  return (
+    <SliderField
+      label={label}
+      description={description}
+      value={shown}
+      min={min}
+      max={100}
+      step={5}
+      showValue
+      onChange={(v) => {
+        setShown(v);
+        window.clearTimeout(timer.current);
+        timer.current = window.setTimeout(() => onCommit(v), 400);
+      }}
+    />
+  );
+};
+
+/** Look of an OLED clock: font, size, 12/24 h, seconds, date, brightness, and where it sits. */
 const ClockOptions: FC<{ id: string }> = ({ id }) => {
   const state = useBackendState();
   const [busy, run] = useBusy();
   const o = state.classicOptions[id] ?? {};
-  const [dim, setDim] = useState(o.dim ?? 70);
-  const timer = useRef<number>();
   const set = (patch: ClassicOptions) => void run(() => setClassicOptions(id, { ...patch, locale: getLocale() }));
+  const motion = o.motion ?? 'drift';
+  const position = o.position ?? 'center';
   return (
     <>
       <DropdownItem
@@ -318,20 +359,30 @@ const ClockOptions: FC<{ id: string }> = ({ id }) => {
       />
       <ToggleField label={t('clockOpts.seconds')} checked={o.seconds === true} disabled={busy} onChange={(v) => set({ seconds: v })} />
       <ToggleField label={t('clockOpts.date')} checked={o.date !== false} disabled={busy} onChange={(v) => set({ date: v })} />
-      <SliderField
-        label={t('clockOpts.dim')}
-        description={t('clockOpts.dimDesc')}
-        value={dim}
-        min={20}
-        max={100}
-        step={5}
-        showValue
-        onChange={(v) => {
-          setDim(v);
-          window.clearTimeout(timer.current);
-          timer.current = window.setTimeout(() => set({ dim: v }), 400);
-        }}
+      <PercentSlider label={t('clockOpts.dim')} description={t('clockOpts.dimDesc')} value={o.dim ?? 70} min={20} onCommit={(v) => set({ dim: v })} />
+      <DropdownItem
+        label={t('clockOpts.motion')}
+        description={t('clockOpts.motionDesc')}
+        rgOptions={CLOCK_MOTIONS.map((m) => ({ data: m, label: t(`clockOpts.motion.${m}`) }))}
+        selectedOption={motion}
+        disabled={busy}
+        onChange={(v) => set({ motion: v.data })}
       />
+      {motion === 'fixed' && (
+        <DropdownItem
+          label={t('clockOpts.position')}
+          rgOptions={CLOCK_POSITIONS.map((p) => ({ data: p, label: t(`clockOpts.position.${p}`) }))}
+          selectedOption={position}
+          disabled={busy}
+          onChange={(v) => set({ position: v.data })}
+        />
+      )}
+      {motion === 'fixed' && position === 'custom' && (
+        <>
+          <PercentSlider label={t('clockOpts.x')} value={o.x ?? 50} onCommit={(v) => set({ x: v })} />
+          <PercentSlider label={t('clockOpts.y')} value={o.y ?? 50} onCommit={(v) => set({ y: v })} />
+        </>
+      )}
     </>
   );
 };
