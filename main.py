@@ -1373,13 +1373,26 @@ class Plugin:
             entry = _state["installed"].get(video_id)
             if not entry:
                 return {"ok": False, "error": "not installed"}
-            name = "video" + os.path.splitext(_video_file(video_id))[1]
+            src = _video_path(video_id)
+            fit = entry.get("fit") or _default_fit()
+            boomerang = entry["boomerang"]
+            if entry.get("type") in ("boot", "suspend"):
+                # show it the way Steam will play it at boot/suspend: the
+                # 1920x1080 copy for fit/fill/stretch, or the original cropped
+                movie_fit = entry.get("movieFit") if entry.get("movieFit") in MOVIE_FITS else _state["movies"].get("fit", "original")
+                boomerang = False
+                if movie_fit == "original":
+                    fit = "cover"
+                else:
+                    src = await _fitted_movie(video_id, movie_fit)
+                    fit = "fill"
+            name = "video" + os.path.splitext(src)[1]
             _remove_folder(PREVIEW_FOLDER)
             path = _write_player(
                 PREVIEW_FOLDER,
-                {"mode": "single", "videos": [name], "fits": [entry.get("fit") or _default_fit()], "boomerang": entry["boomerang"], "plays": 0},
+                {"mode": "single", "videos": [name], "fits": [fit], "boomerang": boomerang, "plays": 0},
             )
-            _link_or_copy(_video_path(video_id), os.path.join(path, name))
+            _link_or_copy(src, os.path.join(path, name))
             _own_tree(path)
             return {"ok": True, "folder": PREVIEW_FOLDER}
         except Exception as err:  # pylint: disable=broad-except
