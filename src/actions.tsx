@@ -32,9 +32,21 @@ import {
   previewScreensaver,
   setActiveScreensaver,
 } from './steam';
-import { CLOCK_MOTIONS, CLOCK_POSITIONS, CLOCK_SPEEDS, ClassicOptions, Fit, InstalledEntry, MOVIE_SLOTS, MovieSlot, SLOT_TYPE } from './types';
+import {
+  CLOCK_MOTIONS,
+  CLOCK_POSITIONS,
+  CLOCK_SPEEDS,
+  ClassicOptions,
+  Fit,
+  InstalledEntry,
+  MOVIE_SLOTS,
+  MovieFit,
+  MovieSlot,
+  SLOT_TYPE,
+} from './types';
 
 const FITS: Fit[] = ['cover', 'contain', 'fill', 'none'];
+const MOVIE_FITS: MovieFit[] = ['original', 'contain', 'cover', 'stretch'];
 
 export const toast = (body: string) => toaster.toast({ title: 'Deck Animations', body });
 export const errorText = (err: unknown) => String((err as Error)?.message ?? err);
@@ -277,6 +289,24 @@ export const OptionsModal: FC<{ id: string; closeModal?: () => void }> = ({ id, 
         disabled={busy}
         onChange={(v) => void run(() => setOptions(entry.id, { disabled: !v }))}
       />
+      {slotsFor(entry).length > 0 && !entry.disabled && (
+        <DropdownItem
+          label={t('opts.movieFit')}
+          description={t('opts.movieFitDesc')}
+          rgOptions={[
+            { data: '', label: t('opts.movieFitDefault', { fit: t(`movies.fit.${state.movies.fit ?? 'original'}`) }) },
+            ...MOVIE_FITS.map((f) => ({ data: f, label: t(`movies.fit.${f}`) })),
+          ]}
+          selectedOption={entry.movieFit ?? ''}
+          disabled={busy}
+          onChange={(o) =>
+            void run(async () => {
+              await setOptions(entry.id, { movieFit: o.data as MovieFit | '' });
+              if (activeSlots(entry).length) toast(t('movies.fitApplied'));
+            })
+          }
+        />
+      )}
       <ToggleField
         label={t('lib.badgeSs')}
         checked={!!entry.screensaver}

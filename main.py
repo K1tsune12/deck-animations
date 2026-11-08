@@ -704,6 +704,12 @@ def _patch_entry(video_id, patch):
             entry[key] = bool(patch[key])
     if patch.get("fit") in FITS:
         entry["fit"] = patch["fit"]
+    if "movieFit" in patch:
+        # "" = follow the global boot/suspend size
+        if patch["movieFit"] in MOVIE_FITS:
+            entry["movieFit"] = patch["movieFit"]
+        else:
+            entry.pop("movieFit", None)
     if isinstance(patch.get("tags"), list):
         entry["tags"] = _clean_tags(patch["tags"])
     # display name only: the Steam folder keeps its name so the active
@@ -806,7 +812,7 @@ async def _apply_movies():
     """Point Steam's movie overrides at the chosen library videos. Only ever
     replaces symlinks; a real file someone put there is kept as *.orig."""
     os.makedirs(MOVIES_DIR, exist_ok=True)
-    fit = _state["movies"].get("fit", "original")
+    default_fit = _state["movies"].get("fit", "original")
     for slot, name in MOVIE_FILES.items():
         path = os.path.join(MOVIES_DIR, name)
         video_id = _state["movies"].get(slot, "")
@@ -824,6 +830,8 @@ async def _apply_movies():
             else:
                 os.replace(path, orig)
         target = _video_path(video_id)
+        # the video's own choice (Options in the library), else the global one
+        fit = entry.get("movieFit") if entry.get("movieFit") in MOVIE_FITS else default_fit
         if fit != "original":
             try:
                 target = await _fitted_movie(video_id, fit)
@@ -1311,8 +1319,9 @@ class Plugin:
                 return {"ok": False, "error": "not installed"}
             for video_id in ids:
                 _patch_entry(video_id, patch)
-            if "disabled" in patch:
-                # a disabled video leaves the boot/suspend slots it held
+            if "disabled" in patch or "movieFit" in patch:
+                # a disabled video leaves the boot/suspend slots it held; a new
+                # size re-encodes the slots it is in
                 await _apply_movies()
             _sync_shuffle()
             _save_state()

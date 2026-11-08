@@ -30,7 +30,12 @@ export const CSS = `
 .dss-batch { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 12px; padding: 8px; background: #0008; border-radius: 4px; }
 .dss-batch .DialogButton { min-width: 0 !important; width: auto !important; height: auto !important; padding: 6px 12px !important; font-size: 13px !important; line-height: 18px !important; }
 .dss-batch-count { color: #9aa; font-size: 13px; margin-right: 6px; }
-.dss-row.dss-selected { box-shadow: inset 0 0 0 2px #59bf40; }
+.dss-row.dss-selected { box-shadow: inset 0 0 0 2px #59bf40; background: #59bf4022; }
+.dss-row .dss-check { display: flex !important; align-items: center; justify-content: center; padding: 6px 10px !important; }
+.dss-row .dss-check-on { background: #59bf40 !important; color: #fff !important; }
+/* Steam slides a tab in (translateX 40%) while it also jumps the new tab to its
+   last focused row: the two motions together look torn. Keep the fade only. */
+.dss-root :has(> * > ._TabContentsScroll) { transform: none !important; }
 .dss-desc { font-size: 12px; color: #9aa; margin: 4px 0 8px; min-height: 3em; }
 .dss-actions { display: flex; gap: 8px; }
 .dss-actions > * { flex: 1; }

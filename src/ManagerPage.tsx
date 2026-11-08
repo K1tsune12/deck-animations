@@ -17,7 +17,7 @@ import {
   showModal,
 } from '@decky/ui';
 import { FC, useEffect, useMemo, useRef, useState } from 'react';
-import { FaFilm } from 'react-icons/fa';
+import { FaCheckSquare, FaFilm, FaRegSquare } from 'react-icons/fa';
 
 import {
   ClassicOptionsModal,
@@ -631,29 +631,19 @@ const LibraryRow: FC<{ entry: InstalledEntry; selection?: Selection }> = ({ entr
   const seconds = entry.videoDuration || entry.duration;
   const preview = () => void run(() => previewEntry(entry));
 
-  if (selection) {
-    // batch mode: the whole row is one toggle
-    return (
-      <div className="dss-item" style={entry.disabled ? { opacity: 0.6 } : undefined}>
-        <Focusable className={selection.selected ? 'dss-row dss-selected' : 'dss-row'} flow-children="horizontal">
-          <DialogButton className={selection.selected ? 'dss-row-btn dss-in' : 'dss-row-btn dss-out'} onClick={selection.onToggle}>
-            {selection.selected ? '☑' : '☐'}
-          </DialogButton>
-          <Thumb src={entry.thumbnail} onPreview={selection.onToggle} />
-          <div className="dss-row-info">
-            <div className="dss-title">{entry.title}</div>
-            {seconds ? <div className="dss-sub">{Math.round(seconds * 10) / 10}s</div> : null}
-          </div>
-        </Focusable>
-        <EntryBadges entry={entry} />
-      </div>
-    );
-  }
-
   return (
     <div className="dss-item" style={entry.disabled ? { opacity: 0.6 } : undefined}>
-      <Focusable className="dss-row" flow-children="horizontal">
-        <Thumb src={entry.thumbnail} onPreview={preview} />
+      <Focusable className={selection?.selected ? 'dss-row dss-selected' : 'dss-row'} flow-children="horizontal">
+        {selection && (
+          // batch mode: a checkbox in front, the row keeps all its buttons
+          <DialogButton
+            className={selection.selected ? 'dss-row-btn dss-check dss-check-on' : 'dss-row-btn dss-check'}
+            onClick={selection.onToggle}
+          >
+            {selection.selected ? <FaCheckSquare size={18} /> : <FaRegSquare size={18} />}
+          </DialogButton>
+        )}
+        <Thumb src={entry.thumbnail} onPreview={selection ? selection.onToggle : preview} />
         <div className="dss-row-info">
           <div className="dss-title">{entry.title}</div>
           {seconds ? <div className="dss-sub">{Math.round(seconds * 10) / 10}s</div> : null}
@@ -1346,14 +1336,7 @@ const ExploreTab: FC<{ view: ExploreView; onView: (v: ExploreView) => void; inst
 );
 
 /** Tab content with room for Steam's footer bar, which overlaps the page bottom. */
-/** Each tab scrolls inside its own box, so Steam's tab container (which also
- *  animates the tab switch) never scrolls: with it scrolled and a row focused
- *  far down, the switch animation split the header from the content. */
-const Padded: FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="dss-tab-scroll" style={{ height: '100%', overflowY: 'auto', boxSizing: 'border-box', paddingBottom: '90px' }}>
-    {children}
-  </div>
-);
+const Padded: FC<{ children: React.ReactNode }> = ({ children }) => <div style={{ paddingBottom: '90px' }}>{children}</div>;
 
 export const ManagerPage: FC = () => {
   useLanguage();
@@ -1403,7 +1386,7 @@ export const ManagerPage: FC = () => {
   const libraryCount = state.installed.length + state.classics.length;
 
   return (
-    <div ref={rootRef} style={{ marginTop: '40px', height: 'calc(100% - 40px)', background: '#0005' }}>
+    <div ref={rootRef} className="dss-root" style={{ marginTop: '40px', height: 'calc(100% - 40px)', background: '#0005' }}>
       <style>{CSS}</style>
       <div style={{ padding: '0 2.8vw' }}>
         <AnimationChangerBanner />
@@ -1411,12 +1394,6 @@ export const ManagerPage: FC = () => {
       <Tabs
         activeTab={tab}
         onShowTab={(id: string) => {
-          // a row focused far down the old tab makes the slide animation split
-          // (header one way, content the other): drop it and start at the top
-          (document.activeElement as HTMLElement | null)?.blur?.();
-          rootRef.current?.querySelectorAll<HTMLElement>('*').forEach((el) => {
-            if (el.scrollTop > 0) el.scrollTop = 0;
-          });
           setTab(id as TabId);
           requestedTab = id as TabId;
         }}

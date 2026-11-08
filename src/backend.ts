@@ -81,7 +81,7 @@ export const setOptions = (
   id: string,
   patch: Partial<
     Pick<InstalledEntry, 'boomerang' | 'disabled' | 'fit' | 'screensaver' | 'shuffleExclude' | 'shuffleInclude' | 'tags' | 'title'>
-  >,
+  > & { movieFit?: InstalledEntry['movieFit'] | '' },
 ) => mutate('set_options', id, patch);
 export const setMovie = (slot: MovieSlot, id: string) => mutate('set_movie', slot, id);
 export const setOptionsMany = (ids: string[], patch: Parameters<typeof setOptions>[1]) => mutate('set_options_many', ids, patch);

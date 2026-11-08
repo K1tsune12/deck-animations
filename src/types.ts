@@ -35,6 +35,8 @@ export interface InstalledEntry {
   screensaver?: boolean;
   /** Kept in the library but out of everything: Steam's list, the rotation, boot/suspend. */
   disabled?: boolean;
+  /** Size when Steam plays it at boot/suspend (unset = the global choice). */
+  movieFit?: MovieFit;
   /** Kept out of boot/suspend randomization. */
   shuffleExclude?: boolean;
   /** Part of the Shuffle screensaver (default true for screensavers). */
