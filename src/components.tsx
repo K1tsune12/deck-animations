@@ -61,7 +61,8 @@ export const CSS = `
 .dss-lib-card img, .dss-lib-card .dss-row-placeholder { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; }
 .dss-lib-card .dss-thumb-btn { border-radius: 0; }
 .dss-lib-card .dss-lib-info { padding: 6px 8px 0; }
-.dss-lib-actions { display: flex; gap: 6px; padding: 6px 8px 8px; justify-content: flex-end; }
+.dss-lib-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 8px 8px; justify-content: flex-end; }
+.dss-lib-actions .DialogButton { flex: 0 0 auto; }
 .dss-lib-info { flex: 1; min-width: 0; }
 .dss-lib .dss-more { display: flex !important; align-items: center; padding: 6px 10px !important; }
 .dss-lib.dss-selected { box-shadow: inset 0 0 0 2px #59bf40; background: #59bf4022; }
@@ -93,8 +94,15 @@ export const CSS = `
    last focused row: the two motions together look torn. Keep the fade only. */
 .dss-root :has(> * > ._TabContentsScroll) { transform: none !important; }
 .dss-desc { font-size: 12px; color: #9aa; margin: 4px 0 8px; min-height: 3em; }
-.dss-actions { display: flex; gap: 8px; }
-.dss-actions > * { flex: 1; }
+/* buttons wrap instead of shrinking: on a narrow card (the Deck's 854 px screen,
+   3 cards a row) they go two to a line with their whole label; wide cards keep one row */
+.dss-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.dss-actions > * { flex: 1 0 auto; }
+.dss-card, .dss-lib-card { container-type: inline-size; }
+@container (max-width: 320px) {
+  .dss-actions > * { flex: 1 0 calc(50% - 4px); }
+}
+.dss-actions .DialogButton, .dss-lib-actions .DialogButton { text-overflow: clip !important; overflow: visible !important; }
 /* Steam's DialogButton has a large min-width/padding; compact it inside cards and rows */
 .dss-actions .DialogButton, .dss-row .DialogButton {
   min-width: 0 !important; width: auto !important; height: auto !important;
