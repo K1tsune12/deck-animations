@@ -790,19 +790,27 @@ const LibraryItem: FC<{ item: LibItem; ctx: LibContext; grid: boolean; selection
     .join(' ');
 
   if (grid)
+    // one focus group per card, so the grid moves card to card with left/right;
+    // when selecting, the checkbox sits on the thumbnail and the card gets an outline
     return (
-      <div className={classes}>
-        <Thumb {...thumb} onPreview={selection ? selection.onToggle : preview} />
+      <Focusable className={classes} flow-children="column">
+        <div className="dss-card-thumb">
+          <Thumb {...thumb} onPreview={selection ? selection.onToggle : preview} />
+          {selection && (
+            <span className={selection.selected ? 'dss-check-badge dss-check-badge-on' : 'dss-check-badge'}>
+              {selection.selected ? <FaCheckSquare size={22} /> : <FaRegSquare size={22} />}
+            </span>
+          )}
+        </div>
         <div className="dss-lib-info">
           <div className="dss-title">{itemTitle(item)}</div>
           <ItemMeta item={item} ctx={ctx} />
         </div>
-        <Focusable className="dss-lib-actions" flow-children="horizontal">
-          {check}
+        <Focusable className="dss-lib-actions" flow-children="row">
           {previewBtn}
           {more}
         </Focusable>
-      </div>
+      </Focusable>
     );
 
   return (
@@ -1171,6 +1179,7 @@ const LibraryTab: FC = () => {
       {all.length === 0 ? <Hint>{t('lib.empty')}</Hint> : items.length === 0 && <Hint>{t('lib.emptyFilter')}</Hint>}
       <Focusable
         className={view === 'grid' ? 'dss-lib-grid' : 'dss-lib-list'}
+        flow-children={view === 'grid' ? 'grid' : 'column'}
         onCancelButton={selecting ? () => stopSelecting() : undefined}
         onCancelActionDescription={selecting ? t('batch.leave') : undefined}
       >

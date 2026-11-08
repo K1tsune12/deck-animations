@@ -54,6 +54,14 @@ export const CSS = `
 .dss-lib-info { flex: 1; min-width: 0; }
 .dss-lib .dss-more { display: flex !important; align-items: center; padding: 6px 10px !important; }
 .dss-lib.dss-selected { box-shadow: inset 0 0 0 2px #59bf40; background: #59bf4022; }
+/* grid: outline the card, never tint the video; a checkbox floats on the thumbnail */
+.dss-lib-card.dss-selected { background: #0008; box-shadow: 0 0 0 3px #59bf40; }
+.dss-card-thumb { position: relative; }
+.dss-check-badge { position: absolute; top: 8px; left: 8px; display: flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 6px; background: #000b; color: #fff; pointer-events: none; box-shadow: 0 0 0 1px #ffffff55; }
+.dss-check-badge-on { background: #59bf40; box-shadow: none; }
+.dss-lib-card.gpfocuswithin { box-shadow: 0 0 0 2px #fff; }
+.dss-lib-card.dss-selected.gpfocuswithin { box-shadow: 0 0 0 3px #59bf40, 0 0 0 5px #fff; }
 .dss-lib.dss-off { opacity: 0.55; }
 .dss-lib .dss-check { display: flex !important; align-items: center; justify-content: center; padding: 6px 10px !important; }
 .dss-lib .dss-check-on { background: #59bf40 !important; color: #fff !important; }
