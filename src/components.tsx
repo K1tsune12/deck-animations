@@ -41,7 +41,11 @@ export const CSS = `
 /* library: quiet rows, two buttons each, state as small icons */
 .dss-libbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; }
 .dss-icon-btn { display: flex !important; align-items: center; gap: 6px; }
-.dss-lib-list { display: flex; flex-direction: column; gap: 6px; }
+.dss-lib-list { display: flex; flex-direction: column; gap: 0; background: #0008; border-radius: 4px; }
+.dss-lib-list .dss-lib { background: none; border-radius: 0; }
+/* a light rule between rows, and the focused row lit up, so it is clear whose Preview is selected */
+.dss-lib-list .dss-lib + .dss-lib { border-top: 1px solid #ffffff26; }
+.dss-lib-list .dss-lib-row.gpfocuswithin { background: #ffffff12; box-shadow: inset 4px 0 0 #1a9fff; }
 .dss-lib-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .dss-lib { background: #0008; border-radius: 4px; }
 .dss-lib-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; }

@@ -326,10 +326,13 @@ export const OptionsModal: FC<{ id: string; closeModal?: () => void }> = ({ id, 
         />
         <DropdownItem
           label={t('fit.label')}
-          rgOptions={FITS.map((f) => ({ data: f, label: t(`fit.${f}`) }))}
-          selectedOption={entry.fit ?? state.defaultFit}
+          rgOptions={[
+            { data: '', label: t('fit.default', { fit: t(`fit.${state.defaultFit}`) }) },
+            ...FITS.map((f) => ({ data: f, label: t(`fit.${f}`) })),
+          ]}
+          selectedOption={entry.fit ?? ''}
           disabled={busy}
-          onChange={(o) => void run(() => setOptions(entry.id, { fit: o.data as Fit }))}
+          onChange={(o) => void run(() => setOptions(entry.id, { fit: o.data as Fit | '' }))}
         />
         </>
       )}

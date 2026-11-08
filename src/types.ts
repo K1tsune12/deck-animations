@@ -178,6 +178,8 @@ export interface BackendState {
   device: DeviceInfo;
   /** Fit used by videos without their own (cover on a TV, contain on a handheld). */
   defaultFit: Fit;
+  /** Screensaver size for videos without their own: 'auto' follows the device. */
+  screensaverFit: Fit | 'auto';
   hasGiphyKey: boolean;
   movies: MovieSettings;
   /** Animation Changer's settings exist on this Deck (installed or not). */

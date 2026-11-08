@@ -157,6 +157,8 @@ _state = {
     "lastBootId": "",
     # the UI language (e.g. "pt-BR"): the clocks' date line follows it
     "locale": "",
+    # screensaver size of videos without their own: "auto" (by device) or one of FITS
+    "screensaverFit": "auto",
 }
 _repo = {"fetched_at": 0, "posts": []}
 
@@ -416,7 +418,10 @@ def _device_kind():
 
 
 def _default_fit():
-    """Repo videos are 16:10; on a 16:9 TV, filling the screen looks better than bars."""
+    """The screensaver size of videos without their own: the user's choice, or
+    by device (repo videos are 16:10; on a 16:9 TV filling looks better than bars)."""
+    if _state["screensaverFit"] in FITS:
+        return _state["screensaverFit"]
     return "cover" if _device_kind() == "tv" else "contain"
 
 
@@ -716,6 +721,9 @@ def _patch_entry(video_id, patch):
             entry[key] = bool(patch[key])
     if patch.get("fit") in FITS:
         entry["fit"] = patch["fit"]
+    elif patch.get("fit") == "":
+        # back to the global screensaver size
+        entry.pop("fit", None)
     if "movieFit" in patch:
         # "" = follow the global boot/suspend size
         if patch["movieFit"] in MOVIE_FITS:
@@ -998,6 +1006,7 @@ def _public_state():
         "shuffleFolder": SHUFFLE_FOLDER,
         "device": {"setting": _state["device"], "kind": _device_kind(), "detected": _detect_device()},
         "defaultFit": _default_fit(),
+        "screensaverFit": _state["screensaverFit"],
         "screensaversDir": SCREENSAVERS_DIR,
         "customDir": CUSTOM_DIR,
     }
@@ -1040,6 +1049,8 @@ class Plugin:
         _state["importedAnimationChanger"] = loaded.get("importedAnimationChanger", False)
         if loaded.get("device") in DEVICE_CHOICES:
             _state["device"] = loaded["device"]
+        if loaded.get("screensaverFit") in FITS:
+            _state["screensaverFit"] = loaded["screensaverFit"]
         try:
             decky.logger.info(f"device: {_detect_device()} (setting: {_state['device']})")
         except Exception:  # pylint: disable=broad-except
@@ -1779,7 +1790,6 @@ class Plugin:
                     "author": "GIPHY",
                     "thumbnail": thumb if thumb.startswith("https://") else "",
                     "url": str(gif.get("url") or ""),
-                    "fit": "cover",
                     "screensaver": True,
                     "tags": _clean_tags(list(gif.get("tags") or [])),
                 }
@@ -1844,6 +1854,43 @@ class Plugin:
             return {"ok": True}
         except Exception as err:  # pylint: disable=broad-except
             decky.logger.exception("set_display_power failed")
+            return {"ok": False, "error": str(err)}
+
+    async def set_screensaver_fit(self, fit: str):
+        """Screensaver size for every video without its own: "auto" or one of FITS."""
+        try:
+            if fit != "auto" and fit not in FITS:
+                return {"ok": False, "error": "invalid size"}
+            _state["screensaverFit"] = fit
+            for video_id in _state["installed"]:
+                _sync_entry(video_id)
+            _sync_shuffle()
+            _save_state()
+            return {"ok": True, "state": _public_state()}
+        except Exception as err:  # pylint: disable=broad-except
+            decky.logger.exception("set_screensaver_fit failed")
+            return {"ok": False, "error": str(err)}
+
+    async def reset_fits(self, kind: str):
+        """Drop every video's own size so all follow the global one again.
+        kind: "screensaver" (player size) or "movie" (boot/suspend size)."""
+        try:
+            key = {"screensaver": "fit", "movie": "movieFit"}.get(kind)
+            if not key:
+                return {"ok": False, "error": "invalid kind"}
+            changed = [vid for vid, e in _state["installed"].items() if key in e]
+            for video_id in changed:
+                _state["installed"][video_id].pop(key, None)
+                if kind == "screensaver":
+                    _sync_entry(video_id)
+            if kind == "screensaver":
+                _sync_shuffle()
+            else:
+                await _apply_movies()
+            _save_state()
+            return {"ok": True, "state": _public_state(), "count": len(changed)}
+        except Exception as err:  # pylint: disable=broad-except
+            decky.logger.exception("reset_fits failed")
             return {"ok": False, "error": str(err)}
 
     async def set_device(self, choice: str):

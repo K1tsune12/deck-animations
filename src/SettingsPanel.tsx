@@ -1,9 +1,21 @@
 import { toaster } from '@decky/api';
-import { ButtonItem, DropdownItem, PanelSection, PanelSectionRow, SliderField, ToggleField } from '@decky/ui';
+import { ButtonItem, ConfirmModal, DropdownItem, PanelSection, PanelSectionRow, SliderField, ToggleField, showModal } from '@decky/ui';
 import { FC, useEffect, useRef, useState } from 'react';
 
-import { StorageInfo, clearCache, getStorage, setDevice, setLocale, setPlayback, setShuffle, useBackendState } from './backend';
-import { DeviceSetting } from './types';
+import {
+  StorageInfo,
+  clearCache,
+  getStorage,
+  resetFits,
+  setDevice,
+  setLocale,
+  setMovieOptions,
+  setPlayback,
+  setScreensaverFit,
+  setShuffle,
+  useBackendState,
+} from './backend';
+import { DeviceSetting, Fit, MovieFit } from './types';
 import { AnimationChangerSection } from './animationChanger';
 import { getClientSettings, useClientSettings } from './clientSettings';
 import { LANGUAGE_NAMES, LangSetting, getLangSetting, getLocale, setLangSetting, t, useLanguage } from './i18n';
@@ -304,6 +316,82 @@ export const ShuffleSection: FC = () => {
   );
 };
 
+const SS_FITS: (Fit | 'auto')[] = ['auto', 'cover', 'contain', 'fill', 'none'];
+const MOVIE_FITS: MovieFit[] = ['original', 'contain', 'cover', 'stretch'];
+
+/** The two video sizes in one place: the screensaver player and Steam's boot/suspend
+ *  player. Each video can override them (library Options or batch); these are what
+ *  every video without its own size follows, and a way to send them all back here. */
+const VideoSizeSection: FC = () => {
+  const state = useBackendState();
+  const [busy, setBusy] = useState(false);
+  const run = async (fn: () => Promise<unknown>, done?: string) => {
+    setBusy(true);
+    try {
+      await fn();
+      if (done) toaster.toast({ title: 'Deck Animations', body: done });
+    } catch (err) {
+      toaster.toast({ title: 'Deck Animations', body: String((err as Error)?.message ?? err) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const tv = state.device.kind === 'tv';
+  const ssOwn = state.installed.filter((e) => e.fit).length;
+  const movieOwn = state.installed.filter((e) => e.movieFit).length;
+  const reset = (kind: 'screensaver' | 'movie', n: number) =>
+    showModal(
+      <ConfirmModal
+        strTitle={t('size.resetTitle', { n })}
+        strDescription={t(kind === 'screensaver' ? 'size.resetSsDesc' : 'size.resetMovieDesc')}
+        strOKButtonText={t('size.reset')}
+        onOK={() => void run(() => resetFits(kind), t('size.resetDone'))}
+      />,
+    );
+
+  return (
+    <PanelSection title={t('size.title')}>
+      <PanelSectionRow>
+        <DropdownItem
+          label={t('size.ss')}
+          description={t('size.ssDesc', { n: ssOwn })}
+          rgOptions={SS_FITS.map((f) => ({
+            data: f,
+            label: f === 'auto' ? t('size.auto', { fit: t(tv ? 'fit.cover' : 'fit.contain') }) : t(`fit.${f}`),
+          }))}
+          selectedOption={state.screensaverFit}
+          disabled={busy}
+          onChange={(o) => void run(() => setScreensaverFit(o.data as Fit | 'auto'))}
+        />
+      </PanelSectionRow>
+      {ssOwn > 0 && (
+        <PanelSectionRow>
+          <ButtonItem layout="below" disabled={busy} onClick={() => reset('screensaver', ssOwn)}>
+            {t('size.resetN', { n: ssOwn })}
+          </ButtonItem>
+        </PanelSectionRow>
+      )}
+      <PanelSectionRow>
+        <DropdownItem
+          label={t('size.movie')}
+          description={t(tv ? 'size.movieDescTv' : 'size.movieDesc', { n: movieOwn })}
+          rgOptions={MOVIE_FITS.map((f) => ({ data: f, label: t(`movies.fit.${f}`) }))}
+          selectedOption={state.movies.fit ?? 'original'}
+          disabled={busy}
+          onChange={(o) => void run(() => setMovieOptions({ fit: o.data as MovieFit }), t('movies.fitApplied'))}
+        />
+      </PanelSectionRow>
+      {movieOwn > 0 && (
+        <PanelSectionRow>
+          <ButtonItem layout="below" disabled={busy} onClick={() => reset('movie', movieOwn)}>
+            {t('size.resetN', { n: movieOwn })}
+          </ButtonItem>
+        </PanelSectionRow>
+      )}
+    </PanelSection>
+  );
+};
+
 export const SettingsPanel: FC = () => {
   useLanguage();
   const state = useBackendState();
@@ -314,6 +402,7 @@ export const SettingsPanel: FC = () => {
   return (
     <>
       <DeviceSection />
+      <VideoSizeSection />
 
       {settings && (
         <PanelSection title={t('settings.power')}>

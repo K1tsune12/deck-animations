@@ -981,13 +981,16 @@ const BatchBar: FC<{
           {fitTargets.length > 0 && (
             <div className="dss-batch-drop">
               <Dropdown
-                rgOptions={BATCH_FITS.map((f) => ({ data: f, label: t(`fit.${f}`) }))}
+                rgOptions={[
+                  { data: '', label: t('fit.default', { fit: t(`fit.${getState().defaultFit}`) }) },
+                  ...BATCH_FITS.map((f) => ({ data: f, label: t(`fit.${f}`) })),
+                ]}
                 selectedOption={null}
                 strDefaultLabel={n(t('batch.fit'), fitTargets)}
                 disabled={busy}
                 onChange={(o) =>
-                  confirm(`${t('batch.fit')} ${t(`fit.${o.data as Fit}`)}`, fitTargets, () =>
-                    void run(() => setOptionsMany(fitTargets.map((i) => i.entry.id), { fit: o.data as Fit })),
+                  confirm(`${t('batch.fit')}: ${o.data ? t(`fit.${o.data as Fit}`) : t('fit.default', { fit: '' })}`, fitTargets, () =>
+                    void run(() => setOptionsMany(fitTargets.map((i) => i.entry.id), { fit: o.data as Fit | '' })),
                   )
                 }
               />
@@ -1035,7 +1038,14 @@ const CONFIRM_LIST = 12;
 /** The global boot/suspend size, for the "Default (…)" label. */
 const useBackendStateFit = () => getState().movies.fit ?? 'original';
 
-let libView: 'list' | 'grid' = 'list';
+const VIEW_KEY = 'deck-animations-library-view';
+let libView: 'list' | 'grid' = (() => {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'grid' ? 'grid' : 'list';
+  } catch {
+    return 'list';
+  }
+})();
 let libSort: LibSort = 'inuse';
 
 const LibraryTab: FC = () => {
@@ -1155,6 +1165,11 @@ const LibraryTab: FC = () => {
           className="dss-icon-btn"
           onClick={() => {
             libView = view === 'list' ? 'grid' : 'list';
+            try {
+              localStorage.setItem(VIEW_KEY, libView);
+            } catch {
+              // only a convenience
+            }
             setView(libView);
           }}
         >

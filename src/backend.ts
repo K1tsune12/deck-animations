@@ -16,6 +16,7 @@ import {
   PostLike,
   RepoPost,
   ShuffleSettings,
+  Fit,
 } from './types';
 
 type Result<T = {}> = ({ ok: true } & T) | { ok: false; error: string };
@@ -32,6 +33,7 @@ let state: BackendState = {
     detected: { kind: 'handheld', battery: true, internalPanel: true, backlight: true, vendor: '', product: '', oled: false },
   },
   defaultFit: 'contain',
+  screensaverFit: 'auto',
   hasGiphyKey: false,
   movies: { boot: '', suspend: '', throbber: '', shuffleOnBoot: false, randomizeEveryMin: 0, lastShuffle: 0 },
   animationChangerFound: false,
@@ -80,10 +82,14 @@ export const setBoomerang = (id: string, enabled: boolean) => mutate('set_option
 export const setOptions = (
   id: string,
   patch: Partial<
-    Pick<InstalledEntry, 'boomerang' | 'disabled' | 'fit' | 'screensaver' | 'shuffleExclude' | 'shuffleInclude' | 'tags' | 'title'>
-  > & { movieFit?: InstalledEntry['movieFit'] | '' },
+    Pick<InstalledEntry, 'boomerang' | 'disabled' | 'screensaver' | 'shuffleExclude' | 'shuffleInclude' | 'tags' | 'title'>
+  > & { fit?: Fit | ''; movieFit?: InstalledEntry['movieFit'] | '' },
 ) => mutate('set_options', id, patch);
 export const setMovie = (slot: MovieSlot, id: string) => mutate('set_movie', slot, id);
+/** Screensaver size for every video without its own ("auto" = by device). */
+export const setScreensaverFit = (fit: Fit | 'auto') => mutate('set_screensaver_fit', fit);
+/** Every video back to the global size: "screensaver" or "movie" (boot/suspend). */
+export const resetFits = (kind: 'screensaver' | 'movie') => mutate('reset_fits', kind);
 export const setOptionsMany = (ids: string[], patch: Parameters<typeof setOptions>[1]) => mutate('set_options_many', ids, patch);
 export const uninstallMany = (ids: string[]) => mutate('uninstall_many', ids);
 /** The UI language, for the date line of clocks that have no locale of their own. */
