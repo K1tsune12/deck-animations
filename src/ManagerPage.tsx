@@ -38,6 +38,7 @@ import {
 import {
   ClassicOptionsModal,
   ImportModal,
+  ModalFooter,
   OptionsModal,
   UseAsModal,
   activeSlots,
@@ -394,6 +395,7 @@ const GifModal: FC<{ gif: GifResult; query: string; closeModal?: () => void }> =
           )}
         </Focusable>
       </div>
+      <ModalFooter onClose={closeModal} busy={busy} />
     </ModalRoot>
   );
 };

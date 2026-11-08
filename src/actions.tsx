@@ -11,6 +11,7 @@ import {
   importUrl,
   importVideo,
   preparePreview,
+  restoreClassicOptions,
   preparePreviewClassic,
   preparePreviewMedia,
   scanCustomFolder,
@@ -228,6 +229,34 @@ export const fitsSlot = (entry: InstalledEntry, slot: MovieSlot) => slotsFor(ent
 export const activeSlots = (entry: InstalledEntry): MovieSlot[] =>
   MOVIE_SLOTS.filter((s) => getState().movies[s] === entry.id);
 
+/** The bottom of a dialog: Cancel + Save, or just Close. Mouse users have no other
+ *  way out than clicking beside the dialog. */
+export const ModalFooter: FC<{
+  onSave?: () => void;
+  onCancel?: () => void;
+  onClose?: () => void;
+  busy?: boolean;
+  saveDisabled?: boolean;
+}> = ({ onSave, onCancel, onClose, busy, saveDisabled }) => (
+  <Focusable className="dss-modal-footer" flow-children="row">
+    {onCancel && (
+      <DialogButton disabled={busy} onClick={onCancel}>
+        {t('common.cancel')}
+      </DialogButton>
+    )}
+    {onSave && (
+      <DialogButton className="dss-primary" disabled={busy || saveDisabled} onClick={onSave}>
+        {t('opts.save')}
+      </DialogButton>
+    )}
+    {onClose && (
+      <DialogButton disabled={busy} onClick={onClose}>
+        {t('common.close')}
+      </DialogButton>
+    )}
+  </Focusable>
+);
+
 export const UseAsModal: FC<{ id: string; closeModal?: () => void }> = ({ id, closeModal }) => {
   useLanguage();
   const state = useBackendState();
@@ -256,6 +285,7 @@ export const UseAsModal: FC<{ id: string; closeModal?: () => void }> = ({ id, cl
           </DialogButton>
         ))}
       </Focusable>
+      <ModalFooter onClose={closeModal} busy={busy} />
     </ModalRoot>
   );
 };
@@ -267,12 +297,38 @@ export const OptionsModal: FC<{ id: string; closeModal?: () => void }> = ({ id, 
   const entry = state.installed.find((e) => e.id === id);
   const [title, setTitle] = useState(entry?.title ?? '');
   const [tags, setTags] = useState((entry?.tags ?? []).join(', '));
+  // how it was when the dialog opened, for Cancel (every change applies at once)
+  const [before] = useState(() => ({
+    disabled: !!entry?.disabled,
+    screensaver: !!entry?.screensaver,
+    boomerang: !!entry?.boomerang,
+    fit: entry?.fit ?? '',
+    movieFit: entry?.movieFit ?? '',
+  }));
   if (!entry) return null;
 
+  const tagList = () => tags.split(',').map((tag) => tag.trim()).filter(Boolean);
   const save = () =>
     run(async () => {
-      await setOptions(entry.id, { title, tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean) });
+      if (title.trim() !== entry.title || tagList().join(',') !== (entry.tags ?? []).join(','))
+        await setOptions(entry.id, { title, tags: tagList() });
       toast(t('opts.saved'));
+      closeModal?.();
+    });
+  const cancel = () =>
+    run(async () => {
+      const now = {
+        disabled: !!entry.disabled,
+        screensaver: !!entry.screensaver,
+        boomerang: !!entry.boomerang,
+        fit: entry.fit ?? '',
+        movieFit: entry.movieFit ?? '',
+      };
+      const revert = Object.fromEntries(
+        (Object.keys(before) as (keyof typeof before)[]).filter((k) => before[k] !== now[k]).map((k) => [k, before[k]]),
+      );
+      if (Object.keys(revert).length) await setOptions(entry.id, revert);
+      closeModal?.();
     });
 
   return (
@@ -287,15 +343,6 @@ export const OptionsModal: FC<{ id: string; closeModal?: () => void }> = ({ id, 
         value={tags}
         onChange={(e) => setTags(e.target.value)}
       />
-      <Focusable style={{ display: 'flex', justifyContent: 'flex-end', margin: '8px 0 12px' }}>
-        <DialogButton
-          style={{ width: 'auto', minWidth: 0, padding: '0 24px' }}
-          disabled={busy || !title.trim()}
-          onClick={() => void save()}
-        >
-          {t('opts.save')}
-        </DialogButton>
-      </Focusable>
       <ToggleField
         label={t('opts.enabled')}
         description={t('opts.enabledDesc')}
@@ -348,6 +395,7 @@ export const OptionsModal: FC<{ id: string; closeModal?: () => void }> = ({ id, 
         />
         </>
       )}
+      <ModalFooter onCancel={() => void cancel()} onSave={() => void save()} busy={busy} saveDisabled={!title.trim()} />
     </ModalRoot>
   );
 };
@@ -357,7 +405,15 @@ export const ClassicOptionsModal: FC<{ id: string; closeModal?: () => void }> = 
   const state = useBackendState();
   const [busy, run] = useBusy();
   const classic = CLASSICS.find((c) => c.id === id);
+  // how it was when the dialog opened, for Cancel (every change applies at once)
+  const [before] = useState<ClassicOptions>(() => JSON.parse(JSON.stringify(state.classicOptions[id] ?? {})));
   if (!classic) return null;
+
+  const cancel = () =>
+    run(async () => {
+      if (JSON.stringify(state.classicOptions[id] ?? {}) !== JSON.stringify(before)) await restoreClassicOptions(id, before);
+      closeModal?.();
+    });
 
   return (
     <ModalRoot closeModal={closeModal}>
@@ -394,6 +450,7 @@ export const ClassicOptionsModal: FC<{ id: string; closeModal?: () => void }> = 
           )}
         </>
       )}
+      <ModalFooter onCancel={() => void cancel()} onSave={() => closeModal?.()} busy={busy} />
     </ModalRoot>
   );
 };
@@ -680,6 +737,7 @@ export const ImportModal: FC<{ closeModal?: () => void }> = ({ closeModal }) => 
         </DialogButton>
         <div style={hint}>{t('import.folderDesc', { dir: state.customDir })}</div>
       </Focusable>
+      <ModalFooter onClose={closeModal} />
     </ModalRoot>
   );
 };

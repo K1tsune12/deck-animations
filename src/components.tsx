@@ -2,7 +2,7 @@ import { DialogButton, Focusable, ModalRoot } from '@decky/ui';
 import { FC } from 'react';
 import { FaDownload, FaThumbsUp } from 'react-icons/fa';
 
-import { previewEntry, previewMedia, slotsFor, useAsScreensaver, useBusy, useForSlot } from './actions';
+import { ModalFooter, previewEntry, previewMedia, slotsFor, useAsScreensaver, useBusy, useForSlot } from './actions';
 import { install, uninstall, useBackendState } from './backend';
 import { t, useLanguage } from './i18n';
 import { PostLike } from './types';
@@ -28,6 +28,10 @@ export const CSS = `
 .dss-row-placeholder { width: 112px; aspect-ratio: 16 / 10; border-radius: 3px; flex: none; display: flex; align-items: center; justify-content: center; background: #1a1f26; color: #67707b; }
 .dss-row .dss-row-btn { width: auto; min-width: 0; padding: 0 14px; flex: none; }
 .dss-danger { background: #c03030 !important; color: #fff !important; }
+.dss-modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; padding-top: 12px; border-top: 1px solid #ffffff1f; }
+.dss-modal-footer .DialogButton { width: auto !important; min-width: 120px !important; flex: none; }
+.dss-primary { background: #1a9fff !important; color: #fff !important; }
+.dss-primary.gpfocus { background: #4db3ff !important; box-shadow: 0 0 0 2px #fff !important; }
 /* the red background hid Steam's focus highlight: show it on top */
 .dss-danger.gpfocus, .dss-danger:focus, .dss-danger:hover { background: #ff5252 !important; box-shadow: inset 0 0 0 2px #fff, 0 0 0 2px #fff !important; }
 .dss-batch { margin: 8px 0 12px; padding: 8px; background: #0008; border-radius: 4px; box-shadow: inset 0 0 0 1px #59bf4066; }
@@ -243,6 +247,7 @@ export const PostModal: FC<{ post: PostLike; closeModal?: () => void }> = ({ pos
           </Focusable>
         </div>
       </div>
+      <ModalFooter onClose={closeModal} />
     </ModalRoot>
   );
 };

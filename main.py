@@ -1798,6 +1798,31 @@ class Plugin:
             decky.logger.exception("uninstall_classic failed")
             return {"ok": False, "error": str(err)}
 
+    async def restore_classic_options(self, classic_id: str, options: dict):
+        """Put a generated screensaver's options back exactly as given (the Cancel
+        of its Options dialog), then rewrite its page."""
+        try:
+            if classic_id not in CLASSICS or not isinstance(options, dict):
+                return {"ok": False, "error": "invalid"}
+            allowed = {"shuffleInclude", "disabled", "color", "color2", "clockColor", "clock", "x", "y", "dim", "locale",
+                       "seconds", "date", *_CLOCK_ENUMS}
+            clean = {k: v for k, v in options.items() if k in allowed}
+            for key in ("color", "color2", "clockColor"):
+                if clean.get(key) and not _COLOR_RE.match(str(clean[key])):
+                    clean.pop(key)
+            for key, values in _CLOCK_ENUMS.items():
+                if key in clean and clean[key] not in values:
+                    clean.pop(key)
+            _state["classicOptions"][classic_id] = clean
+            if classic_id in _state["classics"]:
+                _write_classic(classic_id)
+            _sync_shuffle()
+            _save_state()
+            return {"ok": True, "state": _public_state()}
+        except Exception as err:  # pylint: disable=broad-except
+            decky.logger.exception("restore_classic_options failed")
+            return {"ok": False, "error": str(err)}
+
     async def set_classic_options_many(self, classic_ids: list, patch: dict):
         """The same option patch on several generated screensavers (batch selection)."""
         result = {"ok": False, "error": "nothing to change"}
