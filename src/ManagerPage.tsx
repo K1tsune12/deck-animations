@@ -1346,7 +1346,14 @@ const ExploreTab: FC<{ view: ExploreView; onView: (v: ExploreView) => void; inst
 );
 
 /** Tab content with room for Steam's footer bar, which overlaps the page bottom. */
-const Padded: FC<{ children: React.ReactNode }> = ({ children }) => <div style={{ paddingBottom: '90px' }}>{children}</div>;
+/** Each tab scrolls inside its own box, so Steam's tab container (which also
+ *  animates the tab switch) never scrolls: with it scrolled and a row focused
+ *  far down, the switch animation split the header from the content. */
+const Padded: FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div className="dss-tab-scroll" style={{ height: '100%', overflowY: 'auto', boxSizing: 'border-box', paddingBottom: '90px' }}>
+    {children}
+  </div>
+);
 
 export const ManagerPage: FC = () => {
   useLanguage();

@@ -18,7 +18,7 @@ import {
   useBackendState,
 } from './backend';
 import { CLASSICS, classicFolder, classicName, classicPrefix } from './classics';
-import { getClientSettings, useClientSettings } from './clientSettings';
+import { getClientSettings, getRealActive, holdRealActive, useClientSettings } from './clientSettings';
 import { getLocale, t, useLanguage } from './i18n';
 import { log } from './debug';
 import { setPreviewing } from './screenOff';
@@ -71,13 +71,17 @@ export async function previewFolder(folder: string, onEnd?: () => void): Promise
   // a second preview while one shows would "restore" the first preview's folder
   if (previewRunning) return;
   previewRunning = true;
-  const previous = getClientSettings()?.screensaverCurrentId ?? getLastActive();
+  // the id the user chose, not one a preview that just ended still shows in
+  // the settings (Steam reflects the restore a moment later)
+  const previous = getRealActive() || getClientSettings()?.screensaverCurrentId || getLastActive();
+  holdRealActive(Infinity);
   // the screen-off watcher must not treat the preview as an idle screensaver
   // (it would re-force it, and later the restored one: the rotation shows up)
   setPreviewing(true);
   if (!(await activateFolder(folder))) {
     setPreviewing(false);
     previewRunning = false;
+    holdRealActive(0);
     throw new Error(t('toast.folderNotListed'));
   }
   let started = false;
@@ -89,6 +93,7 @@ export async function previewFolder(folder: string, onEnd?: () => void): Promise
     stop();
     log('preview: finish, restoring', previous, 'started', started);
     if (previous) setActiveScreensaver(previous);
+    holdRealActive(Date.now() + PREVIEW_RESTORE_HOLD_MS);
     onEnd?.();
     // the "inactive" notification may still be on its way to the watcher
     window.setTimeout(() => setPreviewing(false), PREVIEW_SETTLE_MS);
@@ -127,6 +132,7 @@ export async function previewFolder(folder: string, onEnd?: () => void): Promise
 }
 
 const PREVIEW_SETTLE_MS = 1500;
+const PREVIEW_RESTORE_HOLD_MS = 4000;
 
 /** Full-screen preview of any library video, with its current options. */
 export async function previewEntry(entry: InstalledEntry): Promise<void> {

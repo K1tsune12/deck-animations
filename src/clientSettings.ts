@@ -13,11 +13,26 @@ let stopWatching: (() => void) | undefined;
 const OLD_ROTATION_ID = 'uioverride-decky-shuffle';
 const ROTATION_FOLDER = 'deck-animations-rotation';
 
+let realActive = '';
+let previewHoldUntil = 0;
+
+/** The active screensaver the user actually chose (ignores what previews set). */
+export function getRealActive(): string {
+  return realActive;
+}
+
+/** Settings changes until `until` (epoch ms) come from a preview, not the user. */
+export function holdRealActive(until: number): void {
+  previewHoldUntil = until;
+}
+
 export function startClientSettings(): void {
   stopWatching = watchClientSettings((s) => {
     if (s.screensaverCurrentId === OLD_ROTATION_ID) void activateFolder(ROTATION_FOLDER);
     clientSettings = s;
     setCurrentScreensaverId(s.screensaverCurrentId);
+    // a preview changes the active id for a moment: not what the user chose
+    if (Date.now() > previewHoldUntil && s.screensaverCurrentId) realActive = s.screensaverCurrentId;
     listeners.forEach((l) => l());
   });
 }
