@@ -24,6 +24,7 @@ import { MANAGER_ROUTE, ManagerPage, openManager } from './ManagerPage';
 import { setRotation } from './SettingsPanel';
 import { startAutoRandomize, stopAutoRandomize } from './autoRandomize';
 import { startScreenOffWatcher, stopScreenOffWatcher } from './screenOff';
+import { UpdateCheckButton } from './updateCheck';
 import {
   BOUNCING_LOGO_ID,
   SLIDESHOW_ID,
@@ -41,7 +42,7 @@ const DEFAULT_MOVIE = '__steam__';
 const toast = (body: string) => toaster.toast({ title: 'Deck Animations', body });
 
 function QuickPanel() {
-  useLanguage();
+  const lang = useLanguage();
   const state = useBackendState();
   const { options, selected, choose, activeFolder } = useScreensaverChoices();
 
@@ -161,6 +162,7 @@ function QuickPanel() {
             {t('qam.settings')}
           </ButtonItem>
         </PanelSectionRow>
+        <UpdateCheckButton repo="K1tsune12/deck-animations" pluginName="Deck Animations" lang={lang} />
       </PanelSection>
     </>
   );
