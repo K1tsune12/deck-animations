@@ -60,17 +60,23 @@ _CLOCK_ENUMS = {
 _CLOCK_BOOLS = ("seconds", "date")
 _LOCALE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$")
 DEVICE_CHOICES = ("auto", "handheld", "tv")
+# The black background is inline as well as in common.css: Steam's view is
+# white until the page paints, and a page whose stylesheet is late or missing
+# would show white behind the transparent OLED art.
 _CLASSIC_HTML = """<!DOCTYPE html>
-<html lang="en">
+<html lang="en" style="background:#000">
 <head>
     <meta charset="UTF-8" />
+    <meta name="color-scheme" content="dark" />
     <title>Decky Screensaver</title>
+    <style>html, body { background: #000; }</style>
     <link rel="stylesheet" href="common.css" />
     <script src="common.js"></script>
     <script src="config.js"></script>
-{extra}    <script src="main.js" defer></script>
-{overlay}</head>
-<body></body>
+{extra}</head>
+<body style="background:#000">
+    <script src="main.js"></script>
+{overlay}</body>
 </html>
 """
 
@@ -242,14 +248,19 @@ def _own_tree(path):
                 pass
 
 
-_ASSET_REF_RE = re.compile(r'((?:src|href)=")([\w.-]+\.(?:js|css))(")')
+_ASSET_TAG_RE = re.compile(r'<(script|link)\b([^>]*?)\b(src|href)="([\w.-]+\.(?:js|css))"([^>]*?)\s*/?>(</script>)?')
 
 
 def _cache_bust(html):
-    """Steam's screensaver view caches page files across restarts, so an
-    updated player.js or config.js would never load: version every reference."""
-    stamp = str(int(time.time() * 1000))
-    return _ASSET_REF_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}?v={stamp}{m.group(3)}", html)
+    """Steam's screensaver view caches page files, index.html included (it
+    can serve an index.html older than the one on disk), so a stamp written
+    here would pin old files. Each file is instead requested with a stamp
+    taken when the page runs, which is never in the cache."""
+    def tag(m):
+        close = "<\\/script>" if m.group(6) else ""
+        return (f"<script>document.write('<{m.group(1)}{m.group(2)}{m.group(3)}=\"{m.group(4)}?v=' + Date.now() + "
+                f"'\"{m.group(5)}>{close}')</script>")
+    return _ASSET_TAG_RE.sub(tag, html)
 
 
 def _write_player(folder, config):
@@ -610,7 +621,9 @@ def _classic_page(classic_id):
     body = [f"<script>{read(os.path.join(classic_id, 'main.js'))}</script>"]
     if overlay:
         body.append(f"<script>{read('clock-overlay.js')}</script>")
-    return f"<!DOCTYPE html><html><head><meta charset='UTF-8'>{''.join(head)}</head><body>{''.join(body)}</body></html>"
+    return (f"<!DOCTYPE html><html style='background:#000'><head><meta charset='UTF-8'>"
+            f"<meta name='color-scheme' content='dark'>{''.join(head)}</head>"
+            f"<body style='background:#000'>{''.join(body)}</body></html>")
 
 
 def _write_classic_files(path, classic_id, standalone=True):
@@ -630,7 +643,7 @@ def _write_classic_files(path, classic_id, standalone=True):
         shutil.copyfile(os.path.join(_CLASSICS_DIR, name), os.path.join(path, name))
     shutil.copyfile(os.path.join(_CLASSICS_DIR, classic_id, "main.js"), os.path.join(path, "main.js"))
     extra = '    <script src="clock.js"></script>\n' if clock else ""
-    overlay_tag = '    <script src="clock-overlay.js" defer></script>\n' if overlay else ""
+    overlay_tag = '    <script src="clock-overlay.js"></script>\n' if overlay else ""
     with open(os.path.join(path, "index.html"), "w", encoding="utf-8") as f:
         f.write(_cache_bust(_CLASSIC_HTML.replace("{extra}", extra).replace("{overlay}", overlay_tag)))
     minutes = _state["playback"].get("pageMinutes", 0)

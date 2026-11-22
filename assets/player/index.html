@@ -1,14 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" style="background:#000">
 <head>
     <meta charset="UTF-8" />
+    <meta name="color-scheme" content="dark" />
     <title>Decky Screensaver</title>
+    <style>html, body { background: #000; }</style>
     <link rel="stylesheet" href="main.css" />
     <script src="config.js"></script>
-    <script src="player.js" defer></script>
 </head>
-<body>
+<body style="background:#000">
     <div class="layer" id="a"><video muted playsinline></video><canvas></canvas><iframe></iframe></div>
     <div class="layer" id="b"><video muted playsinline></video><canvas></canvas><iframe></iframe></div>
+    <script src="player.js"></script>
 </body>
 </html>

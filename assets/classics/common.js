@@ -8,8 +8,11 @@ const FRAME_MS = 1000 / 30 - 2; // slack so a 60 Hz display reliably hits every 
 function CreateCanvas()
 {
     const canvas = document.createElement( 'canvas' );
+    canvas.style.background = '#000';
     document.body.appendChild( canvas );
-    const ctx = canvas.getContext( '2d' );
+    // opaque: clearRect paints black, so the OLED arts (which only clear and
+    // add light) never show whatever is behind the page
+    const ctx = canvas.getContext( '2d', { alpha: false } );
     const view = { canvas, ctx, width: 0, height: 0, onResize: null };
 
     const Resize = () =>
@@ -23,6 +26,9 @@ function CreateCanvas()
         view.onResize && view.onResize();
     };
     window.addEventListener( 'resize', Resize );
+    // the GPU can drop the canvas (e.g. a game needs the memory); once it is
+    // back its state is reset, so size and scale it again
+    canvas.addEventListener( 'contextrestored', Resize );
     Resize();
     return view;
 }
