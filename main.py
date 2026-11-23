@@ -62,7 +62,9 @@ _LOCALE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$")
 DEVICE_CHOICES = ("auto", "handheld", "tv")
 # The black background is inline as well as in common.css: Steam's view is
 # white until the page paints, and a page whose stylesheet is late or missing
-# would show white behind the transparent OLED art.
+# would show white behind the transparent OLED art. The screensaver's own
+# scripts start only once the view has a real size (StartWhenSized in
+# common.js): over a game Steam's view can open at 1x1.
 _CLASSIC_HTML = """<!DOCTYPE html>
 <html lang="en" style="background:#000">
 <head>
@@ -75,8 +77,8 @@ _CLASSIC_HTML = """<!DOCTYPE html>
     <script src="config.js"></script>
 {extra}</head>
 <body style="background:#000">
-    <script src="main.js"></script>
-{overlay}</body>
+    <script>StartWhenSized( [ 'main.js'{overlay} ] );</script>
+</body>
 </html>
 """
 
@@ -643,7 +645,7 @@ def _write_classic_files(path, classic_id, standalone=True):
         shutil.copyfile(os.path.join(_CLASSICS_DIR, name), os.path.join(path, name))
     shutil.copyfile(os.path.join(_CLASSICS_DIR, classic_id, "main.js"), os.path.join(path, "main.js"))
     extra = '    <script src="clock.js"></script>\n' if clock else ""
-    overlay_tag = '    <script src="clock-overlay.js"></script>\n' if overlay else ""
+    overlay_tag = ", 'clock-overlay.js'" if overlay else ""
     with open(os.path.join(path, "index.html"), "w", encoding="utf-8") as f:
         f.write(_cache_bust(_CLASSIC_HTML.replace("{extra}", extra).replace("{overlay}", overlay_tag)))
     minutes = _state["playback"].get("pageMinutes", 0)

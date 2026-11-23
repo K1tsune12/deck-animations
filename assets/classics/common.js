@@ -4,6 +4,8 @@
 
 const MAX_STEP_SEC = 0.1;
 const FRAME_MS = 1000 / 30 - 2; // slack so a 60 Hz display reliably hits every other vsync
+const MIN_SIZE = 16; // CSS px; smaller means Steam's view isn't laid out yet
+const Views = [];
 
 function CreateCanvas()
 {
@@ -13,23 +15,41 @@ function CreateCanvas()
     // opaque: clearRect paints black, so the OLED arts (which only clear and
     // add light) never show whatever is behind the page
     const ctx = canvas.getContext( '2d', { alpha: false } );
-    const view = { canvas, ctx, width: 0, height: 0, onResize: null };
+    const view = { canvas, ctx, width: 0, height: 0, onResize: null, Sync: null };
 
+    // Steam's view can start at 1x1 when it opens over a game and grow
+    // without a resize event: a 2x2 canvas stretched over the screen, where
+    // the OLED art's added light saturates to white. Until the page has a
+    // real size the art sees 0x0 and waits.
+    let innerW = -1;
+    let innerH = -1;
+    let ratio = 0;
     const Resize = () =>
     {
         const dpr = window.devicePixelRatio || 1;
-        view.width = window.innerWidth;
-        view.height = window.innerHeight;
-        canvas.width = Math.round( view.width * dpr );
-        canvas.height = Math.round( view.height * dpr );
+        innerW = window.innerWidth;
+        innerH = window.innerHeight;
+        ratio = dpr;
+        const ready = innerW >= MIN_SIZE && innerH >= MIN_SIZE;
+        view.width = ready ? innerW : 0;
+        view.height = ready ? innerH : 0;
+        canvas.width = Math.max( 1, Math.round( view.width * dpr ) );
+        canvas.height = Math.max( 1, Math.round( view.height * dpr ) );
         ctx.setTransform( dpr, 0, 0, dpr, 0, 0 );
         view.onResize && view.onResize();
+    };
+    // checked every frame, so a size change that never fired an event is caught
+    view.Sync = () =>
+    {
+        if ( window.innerWidth !== innerW || window.innerHeight !== innerH || ( window.devicePixelRatio || 1 ) !== ratio )
+            Resize();
     };
     window.addEventListener( 'resize', Resize );
     // the GPU can drop the canvas (e.g. a game needs the memory); once it is
     // back its state is reset, so size and scale it again
     canvas.addEventListener( 'contextrestored', Resize );
     Resize();
+    Views.push( view );
     return view;
 }
 
@@ -51,6 +71,23 @@ window.addEventListener( 'DOMContentLoaded', () =>
     }, sec * 1000 );
 } );
 
+/** Loads the screensaver's own scripts, in order, once the page has a real
+ *  size (see MIN_SIZE): they place everything from the size they start with. */
+function StartWhenSized( files )
+{
+    const Load = ( i ) =>
+    {
+        if ( i >= files.length )
+            return;
+        const script = document.createElement( 'script' );
+        script.src = `${ files[ i ] }?v=${ Date.now() }`; // never from the cache
+        script.onload = script.onerror = () => Load( i + 1 );
+        document.body.appendChild( script );
+    };
+    const Wait = () => ( innerWidth >= MIN_SIZE && innerHeight >= MIN_SIZE ? Load( 0 ) : requestAnimationFrame( Wait ) );
+    Wait();
+}
+
 function RunLoop( step )
 {
     let last;
@@ -63,6 +100,8 @@ function RunLoop( step )
             return;
         const dt = last === undefined ? 0 : Math.min( ( now - last ) / 1000, MAX_STEP_SEC );
         last = now;
+        for ( const view of Views )
+            view.Sync();
         step( dt, now / 1000 );
     };
     requestAnimationFrame( Frame );
